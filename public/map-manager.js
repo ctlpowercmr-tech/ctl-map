@@ -4,52 +4,95 @@ class MapManager {
         this.markers = [];
         this.userMarker = null;
         this.navigationLine = null;
+        this.directionSource = null;
         this.currentStyleIndex = 0;
         this.mapStyles = [
-            'mapbox://styles/mapbox/dark-v11',
-            'mapbox://styles/mapbox/light-v11',
-            'mapbox://styles/mapbox/satellite-v9',
-            'mapbox://styles/mapbox/navigation-night-v1'
+            'mapbox://styles/mapbox/navigation-day-v1',
+            'mapbox://styles/mapbox/navigation-night-v1',
+            'mapbox://styles/mapbox/satellite-streets-v12',
+            'mapbox://styles/mapbox/light-v11'
         ];
+        this.onMarkerClickCallback = null;
+        this.onMapClickCallback = null;
     }
 
     async init(containerId) {
-        mapboxgl.accessToken = 'pk.eyJ1IjoiY3RsLWxvY2F0aW9uIiwiYSI6ImNsb2Z5a2V1bTAwNG0ya3Bkdmx1cG1zN2kifQ.YourTokenHere';
+        // Token Mapbox - À remplacer par votre token
+        mapboxgl.accessToken = 'pk.eyJ1IjoiY3RsLWxvY2F0aW9uIiwiYSI6ImNsb2Z5a2V1bTAwNG0ya3Bkdmx1cG1zN2kifQ.votre_token_ici';
 
         this.map = new mapboxgl.Map({
             container: containerId,
             style: this.mapStyles[this.currentStyleIndex],
-            center: [9.7679, 4.0511], // Douala
-            zoom: 12,
-            pitch: 45,
+            center: [11.5021, 3.8480], // Centre du Cameroun
+            zoom: 6,
+            pitch: 0,
             bearing: 0,
-            antialias: true
+            antialias: true,
+            attributionControl: true,
+            customAttribution: '© CTL-LOKET'
         });
 
         await this.waitForMapLoad();
         this.setupMapControls();
+        this.setupMapEvents();
     }
 
     waitForMapLoad() {
         return new Promise((resolve) => {
-            this.map.on('load', resolve);
+            this.map.on('load', () => {
+                console.log('✅ Carte Mapbox chargée avec succès');
+                resolve();
+            });
+
+            this.map.on('error', (e) => {
+                console.error('❌ Erreur chargement carte:', e);
+            });
         });
     }
 
     setupMapControls() {
-        this.map.addControl(new mapboxgl.NavigationControl());
-        this.map.addControl(new mapboxgl.ScaleControl());
+        // Contrôles de navigation
+        this.map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+        this.map.addControl(new mapboxgl.ScaleControl({ unit: 'metric' }), 'bottom-left');
         
-        // Ajouter le contrôle 3D
-        this.map.addControl(new mapboxgl.TerrainControl({
-            source: 'mapbox-dem',
-            exaggeration: 1
-        }));
+        // Contrôle de géolocalisation
+        this.map.addControl(new mapboxgl.GeolocateControl({
+            positionOptions: {
+                enableHighAccuracy: true
+            },
+            trackUserLocation: true,
+            showUserLocation: true,
+            showAccuracyCircle: true
+        }), 'top-right');
 
-        // Activer le terrain 3D
-        this.map.setTerrain({ 
-            source: 'mapbox-dem', 
-            exaggeration: 1.5 
+        // Ajout des sources pour le terrain 3D
+        this.map.addSource('mapbox-dem', {
+            'type': 'raster-dem',
+            'url': 'mapbox://mapbox.mapbox-terrain-dem-v1',
+            'tileSize': 512,
+            'maxzoom': 14
+        });
+
+        // Activation du terrain 3D
+        this.map.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 1.5 });
+    }
+
+    setupMapEvents() {
+        // Clic sur la carte
+        this.map.on('click', (e) => {
+            if (this.onMapClickCallback) {
+                this.onMapClickCallback(e);
+            }
+        });
+
+        // Mouvement de la carte
+        this.map.on('moveend', () => {
+            this.updateMarkersVisibility();
+        });
+
+        // Zoom de la carte
+        this.map.on('zoom', () => {
+            this.updateMarkersSize();
         });
     }
 
@@ -63,22 +106,37 @@ class MapManager {
 
     addDistributeurMarker(distributeur) {
         const el = document.createElement('div');
-        el.className = 'distributeur-marker';
+        el.className = `distributeur-marker ${distributeur.type}`;
         el.innerHTML = this.getMarkerHTML(distributeur);
-        el.addEventListener('click', () => {
-            this.onMarkerClick(distributeur);
+        el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (this.onMarkerClickCallback) {
+                this.onMarkerClickCallback(distributeur);
+            }
         });
+
+        // Animation d'apparition
+        el.style.opacity = '0';
+        el.style.transform = 'scale(0)';
 
         const marker = new mapboxgl.Marker({
             element: el,
             anchor: 'bottom'
         })
-        .setLngLat([distributeur.longitude, distributeur.latitude])
+        .setLngLat([parseFloat(distributeur.longitude), parseFloat(distributeur.latitude)])
         .addTo(this.map);
+
+        // Animation
+        setTimeout(() => {
+            el.style.transition = 'all 0.3s ease';
+            el.style.opacity = '1';
+            el.style.transform = 'scale(1)';
+        }, 100);
 
         this.markers.push({
             marker,
-            distributeur
+            distributeur,
+            element: el
         });
     }
 
@@ -90,15 +148,31 @@ class MapManager {
             'divers': 'fa-shopping-cart'
         };
 
+        const typeColors = {
+            'nourriture': '#e74c3c',
+            'boissons': '#3498db',
+            'billets': '#9b59b6',
+            'divers': '#f39c12'
+        };
+
         const icon = typeIcons[distributeur.type] || 'fa-map-marker-alt';
+        const color = typeColors[distributeur.type] || '#2c3e50';
         
         return `
-            <div class="marker-content ${distributeur.type}">
-                <i class="fas ${icon}"></i>
+            <div class="marker-content" style="border-color: ${color}">
+                <div class="marker-icon" style="background: ${color}">
+                    <i class="fas ${icon}"></i>
+                </div>
                 ${distributeur.distance ? 
                     `<div class="marker-distance">${distributeur.distance.toFixed(1)}km</div>` : 
                     ''
                 }
+                ${distributeur.note_moyenne > 0 ? `
+                    <div class="marker-rating">
+                        <i class="fas fa-star"></i>
+                        <span>${distributeur.note_moyenne.toFixed(1)}</span>
+                    </div>
+                ` : ''}
             </div>
         `;
     }
@@ -110,14 +184,29 @@ class MapManager {
 
         const el = document.createElement('div');
         el.className = 'user-marker pulse-marker';
-        el.innerHTML = '<i class="fas fa-user"></i>';
+        el.innerHTML = `
+            <div class="user-marker-content">
+                <i class="fas fa-user"></i>
+                <div class="pulse-ring"></div>
+            </div>
+        `;
 
         this.userMarker = new mapboxgl.Marker({
             element: el,
-            anchor: 'bottom'
+            anchor: 'center'
         })
         .setLngLat([lng, lat])
         .addTo(this.map);
+
+        // Animation de pulsation
+        this.startPulseAnimation(el);
+    }
+
+    startPulseAnimation(element) {
+        const rings = element.querySelectorAll('.pulse-ring');
+        rings.forEach(ring => {
+            ring.style.animation = 'pulse 2s infinite';
+        });
     }
 
     clearMarkers() {
@@ -129,23 +218,113 @@ class MapManager {
         this.map.flyTo({
             center: [lng, lat],
             zoom: zoom,
-            essential: true
+            essential: true,
+            duration: 2000,
+            curve: 1.5
         });
     }
 
     async startNavigation(start, end) {
-        // Implémentation simplifiée de la navigation
-        // Dans une vraie application, vous utiliseriez l'API Directions de Mapbox
-        
-        this.drawNavigationLine(start, end);
-        this.animateNavigation(start, end);
+        try {
+            // Calcul d'itinéraire simplifié (dans une vraie app, utiliser Mapbox Directions API)
+            await this.drawNavigationLine(start, end);
+            this.animateNavigation(start, end);
+            
+        } catch (error) {
+            console.error('Erreur navigation:', error);
+            // Fallback: ligne droite
+            this.drawStraightLine(start, end);
+        }
     }
 
-    drawNavigationLine(start, end) {
-        if (this.navigationLine) {
-            this.navigationLine.remove();
+    async drawNavigationLine(start, end) {
+        // Nettoyer l'ancien itinéraire
+        this.stopNavigation();
+
+        // Créer une ligne droite avec des points intermédiaires pour simulation
+        const coordinates = this.generateRouteCoordinates(start, end);
+        
+        const geojson = {
+            type: 'Feature',
+            geometry: {
+                type: 'LineString',
+                coordinates: coordinates
+            },
+            properties: {}
+        };
+
+        // Ajouter la source
+        if (!this.map.getSource('route')) {
+            this.map.addSource('route', {
+                type: 'geojson',
+                data: geojson
+            });
+        } else {
+            this.map.getSource('route').setData(geojson);
         }
 
+        // Ajouter le layer
+        if (!this.map.getLayer('route')) {
+            this.map.addLayer({
+                id: 'route',
+                type: 'line',
+                source: 'route',
+                layout: {
+                    'line-join': 'round',
+                    'line-cap': 'round'
+                },
+                paint: {
+                    'line-color': '#00d4ff',
+                    'line-width': 5,
+                    'line-opacity': 0.8,
+                    'line-dasharray': [0.5, 0.25]
+                }
+            });
+
+            // Ajouter un glow effect
+            this.map.addLayer({
+                id: 'route-glow',
+                type: 'line',
+                source: 'route',
+                layout: {
+                    'line-join': 'round',
+                    'line-cap': 'round'
+                },
+                paint: {
+                    'line-color': '#00d4ff',
+                    'line-width': 10,
+                    'line-opacity': 0.2,
+                    'line-blur': 5
+                }
+            });
+        }
+
+        this.navigationLine = {
+            remove: () => {
+                if (this.map.getLayer('route')) this.map.removeLayer('route');
+                if (this.map.getLayer('route-glow')) this.map.removeLayer('route-glow');
+                if (this.map.getSource('route')) this.map.removeSource('route');
+            }
+        };
+    }
+
+    generateRouteCoordinates(start, end, points = 10) {
+        const coordinates = [];
+        
+        for (let i = 0; i <= points; i++) {
+            const progress = i / points;
+            const lat = start.lat + (end.lat - start.lat) * progress;
+            const lng = start.lng + (end.lng - start.lng) * progress;
+            
+            // Ajouter un peu de variation pour simuler un vrai chemin
+            const variation = Math.sin(progress * Math.PI) * 0.001;
+            coordinates.push([lng + variation, lat + variation]);
+        }
+        
+        return coordinates;
+    }
+
+    drawStraightLine(start, end) {
         const geojson = {
             type: 'Feature',
             geometry: {
@@ -157,56 +336,62 @@ class MapManager {
             }
         };
 
-        this.map.addSource('route', {
-            type: 'geojson',
-            data: geojson
-        });
-
-        this.map.addLayer({
-            id: 'route',
-            type: 'line',
-            source: 'route',
-            layout: {
-                'line-join': 'round',
-                'line-cap': 'round'
-            },
-            paint: {
-                'line-color': '#00d4ff',
-                'line-width': 4,
-                'line-opacity': 0.8
-            }
-        });
-
-        this.navigationLine = {
-            remove: () => {
-                if (this.map.getLayer('route')) this.map.removeLayer('route');
-                if (this.map.getSource('route')) this.map.removeSource('route');
-            }
-        };
+        if (this.map.getSource('route')) {
+            this.map.getSource('route').setData(geojson);
+        }
     }
 
     animateNavigation(start, end) {
-        // Animation de navigation simplifiée
-        const duration = 5000;
+        const duration = 30000; // 30 secondes
         const startTime = Date.now();
+        const routePoints = this.generateRouteCoordinates(start, end, 100);
+
+        let currentPositionIndex = 0;
 
         const animate = () => {
             const elapsed = Date.now() - startTime;
             const progress = Math.min(elapsed / duration, 1);
             
-            const currentLng = start.lng + (end.lng - start.lng) * progress;
-            const currentLat = start.lat + (end.lat - start.lat) * progress;
+            currentPositionIndex = Math.floor(progress * (routePoints.length - 1));
+            const currentPoint = routePoints[currentPositionIndex];
 
             if (this.userMarker) {
-                this.userMarker.setLngLat([currentLng, currentLat]);
+                this.userMarker.setLngLat(currentPoint);
+            }
+
+            // Mettre à jour la vue pour suivre l'utilisateur
+            if (progress < 0.95) { // Ne pas centrer sur la fin
+                this.map.easeTo({
+                    center: currentPoint,
+                    duration: 1000,
+                    essential: true
+                });
             }
 
             if (progress < 1) {
                 requestAnimationFrame(animate);
+            } else {
+                // Animation arrivée
+                this.showArrivalAnimation(end);
             }
         };
 
         animate();
+    }
+
+    showArrivalAnimation(end) {
+        // Créer un effet de pulsation sur le marqueur de destination
+        const destinationMarker = this.markers.find(m => 
+            m.distributeur.latitude.toFixed(6) === end.lat.toFixed(6) &&
+            m.distributeur.longitude.toFixed(6) === end.lng.toFixed(6)
+        );
+
+        if (destinationMarker) {
+            destinationMarker.element.classList.add('arrival-pulse');
+            setTimeout(() => {
+                destinationMarker.element.classList.remove('arrival-pulse');
+            }, 3000);
+        }
     }
 
     stopNavigation() {
@@ -220,29 +405,64 @@ class MapManager {
         this.currentStyleIndex = (this.currentStyleIndex + 1) % this.mapStyles.length;
         this.map.setStyle(this.mapStyles[this.currentStyleIndex]);
         
-        // Réactiver le terrain après le changement de style
+        // Réactiver le terrain et recharger les marqueurs
         this.map.once('style.load', () => {
-            this.map.setTerrain({ 
-                source: 'mapbox-dem', 
-                exaggeration: 1.5 
-            });
+            this.map.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 1.5 });
+            
+            // Recharger les marqueurs après changement de style
+            setTimeout(() => {
+                this.markers.forEach(({ marker, distributeur }) => {
+                    marker.addTo(this.map);
+                });
+            }, 500);
         });
     }
 
-    // Méthodes pour les différentes vues
+    updateMarkersVisibility() {
+        const bounds = this.map.getBounds();
+        this.markers.forEach(({ marker, distributeur }) => {
+            const lngLat = [parseFloat(distributeur.longitude), parseFloat(distributeur.latitude)];
+            const isVisible = bounds.contains(lngLat);
+            marker.getElement().style.display = isVisible ? 'block' : 'none';
+        });
+    }
+
+    updateMarkersSize() {
+        const zoom = this.map.getZoom();
+        const scale = Math.min(1, Math.max(0.5, (zoom - 10) / 5)); // Scale entre 0.5 et 1
+        
+        this.markers.forEach(({ element }) => {
+            element.style.transform = `scale(${scale})`;
+        });
+    }
+
+    highlightSearchResults(results) {
+        this.markers.forEach(({ element, distributeur }) => {
+            const isVisible = results.some(r => r.id === distributeur.id);
+            element.style.opacity = isVisible ? '1' : '0.3';
+            element.style.pointerEvents = isVisible ? 'auto' : 'none';
+        });
+    }
+
     showMapView() {
-        this.map.setPitch(45);
+        this.map.setPitch(0);
         this.map.setBearing(0);
+        this.map.flyTo({
+            zoom: 12,
+            duration: 1000
+        });
     }
 
     showListView() {
-        // Vue plus plate pour la liste
         this.map.setPitch(0);
         this.map.setBearing(0);
+        this.map.flyTo({
+            zoom: 10,
+            duration: 1000
+        });
     }
 
     showRadarView() {
-        // Vue radar avec rotation
         this.map.setPitch(60);
         this.animateRadar();
     }
@@ -251,7 +471,7 @@ class MapManager {
         let bearing = 0;
         
         const animate = () => {
-            bearing = (bearing + 0.5) % 360;
+            bearing = (bearing + 0.2) % 360;
             this.map.setBearing(bearing);
             
             if (this.radarActive) {
@@ -263,16 +483,24 @@ class MapManager {
         animate();
     }
 
-    highlightSearchResults(results) {
-        // Mettre en évidence les marqueurs correspondants
-        this.markers.forEach(({ marker, distributeur }) => {
-            const isVisible = results.some(r => r.id === distributeur.id);
-            marker.getElement().style.opacity = isVisible ? '1' : '0.3';
-        });
+    stopRadar() {
+        this.radarActive = false;
     }
 
     onMarkerClick(callback) {
         this.onMarkerClickCallback = callback;
+    }
+
+    onMapClick(callback) {
+        this.onMapClickCallback = callback;
+    }
+
+    // Méthode pour obtenir les coordonnées du clic
+    getClickCoordinates(e) {
+        return {
+            lng: e.lngLat.lng,
+            lat: e.lngLat.lat
+        };
     }
 }
 
