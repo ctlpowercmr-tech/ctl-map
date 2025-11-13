@@ -1,5 +1,4 @@
 import express from 'express';
-import pg from 'pg';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import cors from 'cors';
@@ -8,6 +7,7 @@ import rateLimit from 'express-rate-limit';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import dotenv from 'dotenv';
+import DatabaseManager from './database.js';
 
 dotenv.config();
 
@@ -17,328 +17,497 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Configuration de la base de données
-const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-});
-
-// Middleware de sécurité
+// Middleware de sécurité avancé
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com", "https://cdn.jsdelivr.net", "https://api.mapbox.com"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com", "https://cdn.jsdelivr.net", "https://api.mapbox.com"],
-      imgSrc: ["'self'", "data:", "https://", "http:"],
-      connectSrc: ["'self'", "https://api.mapbox.com", "wss:"]
-    }
-  }
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com", "https://cdn.jsdelivr.net", "https://api.mapbox.com"],
+            styleSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com", "https://cdn.jsdelivr.net", "https://api.mapbox.com"],
+            imgSrc: ["'self'", "data:", "https:", "http:", "blob:"],
+            connectSrc: ["'self'", "https://api.mapbox.com", "wss:"],
+            fontSrc: ["'self'", "https://fonts.gstatic.com"],
+            objectSrc: ["'none'"],
+            mediaSrc: ["'self'"],
+            frameSrc: ["'none'"]
+        }
+    },
+    crossOriginEmbedderPolicy: false
 }));
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.static(join(__dirname, 'public')));
 
-// Rate limiting
+// Rate limiting avancé
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limite chaque IP à 100 requêtes par windowMs
+    windowMs: 15 * 60 * 1000,
+    max: 1000,
+    message: { error: 'Trop de requêtes, veuillez réessayer plus tard.' },
+    standardHeaders: true,
+    legacyHeaders: false
 });
 app.use(limiter);
 
 // Middleware d'authentification
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+const authenticateToken = async (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
 
-  if (!token) {
-    return res.status(401).json({ error: 'Token d\'accès requis' });
-  }
-
-  jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret', (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Token invalide' });
+    if (!token) {
+        return res.status(401).json({ error: 'Token d\'accès requis' });
     }
-    req.user = user;
-    next();
-  });
+
+    try {
+        const user = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret_production_2024');
+        const admin = await DatabaseManager.pool.query('SELECT * FROM admins WHERE id = $1 AND is_active = true', [user.id]);
+        
+        if (admin.rows.length === 0) {
+            return res.status(403).json({ error: 'Administrateur non trouvé ou inactif' });
+        }
+
+        req.user = admin.rows[0];
+        next();
+    } catch (error) {
+        return res.status(403).json({ error: 'Token invalide' });
+    }
 };
 
-// Routes de l'API
+// Middleware de logging
+const requestLogger = (req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        DatabaseManager.logAction(`${req.method} ${req.path}`, req.user?.id, {
+            statusCode: res.statusCode,
+            duration: `${duration}ms`,
+            userAgent: req.get('User-Agent')
+        });
+    });
+    next();
+};
+app.use(requestLogger);
+
+// ==================== ROUTES PUBLIQUES ====================
+
+// Page d'accueil
+app.get('/', (req, res) => {
+    res.sendFile(join(__dirname, 'public', 'index.html'));
+});
+
+// Récupérer tous les distributeurs avec filtres avancés
+app.get('/api/distributeurs', async (req, res) => {
+    try {
+        const { 
+            type, 
+            ville, 
+            statut = 'actif',
+            limit = 100,
+            offset = 0,
+            search = '',
+            lat,
+            lng,
+            radius = 10
+        } = req.query;
+
+        let distributeurs = await DatabaseManager.getDistributeurs({
+            type, ville, statut, limit, offset, search
+        });
+
+        // Calcul des distances si coordonnées fournies
+        if (lat && lng) {
+            distributeurs = distributeurs.map(distributeur => {
+                const distance = calculateDistance(
+                    parseFloat(lat),
+                    parseFloat(lng),
+                    parseFloat(distributeur.latitude),
+                    parseFloat(distributeur.longitude)
+                );
+                return { ...distributeur, distance };
+            }).filter(d => d.distance <= radius)
+              .sort((a, b) => a.distance - b.distance);
+        }
+
+        res.json({
+            success: true,
+            data: distributeurs,
+            pagination: {
+                limit: parseInt(limit),
+                offset: parseInt(offset),
+                total: distributeurs.length
+            }
+        });
+    } catch (error) {
+        console.error('Erreur récupération distributeurs:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Erreur lors de la récupération des distributeurs' 
+        });
+    }
+});
+
+// Récupérer un distributeur spécifique
+app.get('/api/distributeurs/:id', async (req, res) => {
+    try {
+        const distributeur = await DatabaseManager.getDistributeurById(req.params.id);
+        
+        if (!distributeur) {
+            return res.status(404).json({ 
+                success: false,
+                error: 'Distributeur non trouvé' 
+            });
+        }
+
+        // Récupérer les avis
+        const avis = await DatabaseManager.getAvisByDistributeur(req.params.id);
+
+        res.json({
+            success: true,
+            data: {
+                ...distributeur,
+                avis: avis
+            }
+        });
+    } catch (error) {
+        console.error('Erreur récupération distributeur:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Erreur lors de la récupération du distributeur' 
+        });
+    }
+});
+
+// Ajouter un avis
+app.post('/api/avis', async (req, res) => {
+    try {
+        const { distributeur_id, utilisateur_id, note, commentaire } = req.body;
+
+        if (!distributeur_id || !note) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'Distributeur ID et note sont requis' 
+            });
+        }
+
+        if (note < 1 || note > 5) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'La note doit être entre 1 et 5' 
+            });
+        }
+
+        const avis = await DatabaseManager.createAvis({
+            distributeur_id,
+            utilisateur_id: utilisateur_id || 'anonymous',
+            note,
+            commentaire
+        });
+
+        res.status(201).json({
+            success: true,
+            data: avis
+        });
+    } catch (error) {
+        console.error('Erreur création avis:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Erreur lors de l\'ajout de l\'avis' 
+        });
+    }
+});
+
+// ==================== ROUTES ADMIN ====================
 
 // Connexion administrateur
 app.post('/api/admin/login', async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    
-    const result = await pool.query(
-      'SELECT * FROM admins WHERE username = $1',
-      [username]
-    );
+    try {
+        const { username, password } = req.body;
+        
+        if (!username || !password) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'Nom d\'utilisateur et mot de passe requis' 
+            });
+        }
 
-    if (result.rows.length === 0) {
-      return res.status(401).json({ error: 'Identifiants incorrects' });
+        const result = await DatabaseManager.pool.query(
+            'SELECT * FROM admins WHERE username = $1 AND is_active = true',
+            [username]
+        );
+
+        if (result.rows.length === 0) {
+            await DatabaseManager.logAction('Tentative de connexion échouée', null, { username, reason: 'Utilisateur non trouvé' });
+            return res.status(401).json({ 
+                success: false,
+                error: 'Identifiants incorrects' 
+            });
+        }
+
+        const admin = result.rows[0];
+        const validPassword = await bcrypt.compare(password, admin.password_hash);
+
+        if (!validPassword) {
+            await DatabaseManager.logAction('Tentative de connexion échouée', admin.id, { username, reason: 'Mot de passe incorrect' });
+            return res.status(401).json({ 
+                success: false,
+                error: 'Identifiants incorrects' 
+            });
+        }
+
+        // Mettre à jour la dernière connexion
+        await DatabaseManager.pool.query(
+            'UPDATE admins SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
+            [admin.id]
+        );
+
+        const token = jwt.sign(
+            { 
+                id: admin.id, 
+                username: admin.username,
+                permissions: admin.permissions 
+            },
+            process.env.JWT_SECRET || 'fallback_secret_production_2024',
+            { expiresIn: '24h' }
+        );
+
+        await DatabaseManager.logAction('Connexion réussie', admin.id, { username });
+
+        res.json({
+            success: true,
+            data: { 
+                token, 
+                admin: { 
+                    id: admin.id, 
+                    username: admin.username,
+                    email: admin.email,
+                    full_name: admin.full_name,
+                    permissions: admin.permissions
+                } 
+            }
+        });
+    } catch (error) {
+        console.error('Erreur de connexion:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Erreur interne du serveur' 
+        });
     }
-
-    const admin = result.rows[0];
-    const validPassword = await bcrypt.compare(password, admin.password_hash);
-
-    if (!validPassword) {
-      return res.status(401).json({ error: 'Identifiants incorrects' });
-    }
-
-    const token = jwt.sign(
-      { id: admin.id, username: admin.username },
-      process.env.JWT_SECRET || 'fallback_secret',
-      { expiresIn: '24h' }
-    );
-
-    res.json({ 
-      token, 
-      admin: { 
-        id: admin.id, 
-        username: admin.username 
-      } 
-    });
-  } catch (error) {
-    console.error('Erreur de connexion:', error);
-    res.status(500).json({ error: 'Erreur interne du serveur' });
-  }
-});
-
-// Récupérer tous les distributeurs
-app.get('/api/distributeurs', async (req, res) => {
-  try {
-    const { type, ville, limit = 50 } = req.query;
-    
-    let query = `
-      SELECT d.*, 
-             COALESCE(
-               json_agg(
-                 json_build_object('id', di.id, 'url', di.image_url)
-               ) FILTER (WHERE di.id IS NOT NULL),
-               '[]'
-             ) as images
-      FROM distributeurs d
-      LEFT JOIN distributeur_images di ON d.id = di.distributeur_id
-      WHERE 1=1
-    `;
-    const params = [];
-    let paramCount = 0;
-
-    if (type) {
-      paramCount++;
-      query += ` AND d.type = $${paramCount}`;
-      params.push(type);
-    }
-
-    if (ville) {
-      paramCount++;
-      query += ` AND d.ville = $${paramCount}`;
-      params.push(ville);
-    }
-
-    query += ` GROUP BY d.id ORDER BY d.created_at DESC LIMIT $${paramCount + 1}`;
-    params.push(parseInt(limit));
-
-    const result = await pool.query(query, params);
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Erreur récupération distributeurs:', error);
-    res.status(500).json({ error: 'Erreur interne du serveur' });
-  }
-});
-
-// Récupérer les distributeurs proches
-app.get('/api/distributeurs/proches', async (req, res) => {
-  try {
-    const { lat, lng, radius = 5, limit = 20 } = req.query;
-    
-    if (!lat || !lng) {
-      return res.status(400).json({ error: 'Coordonnées requises' });
-    }
-
-    const query = `
-      SELECT d.*,
-             (6371 * acos(cos(radians($1)) * cos(radians(d.latitude)) * 
-             cos(radians(d.longitude) - radians($2)) + 
-             sin(radians($1)) * sin(radians(d.latitude)))) as distance,
-             COALESCE(
-               json_agg(
-                 json_build_object('id', di.id, 'url', di.image_url)
-               ) FILTER (WHERE di.id IS NOT NULL),
-               '[]'
-             ) as images
-      FROM distributeurs d
-      LEFT JOIN distributeur_images di ON d.id = di.distributeur_id
-      WHERE (6371 * acos(cos(radians($1)) * cos(radians(d.latitude)) * 
-             cos(radians(d.longitude) - radians($2)) + 
-             sin(radians($1)) * sin(radians(d.latitude)))) < $3
-      GROUP BY d.id
-      ORDER BY distance
-      LIMIT $4
-    `;
-
-    const result = await pool.query(query, [lat, lng, radius, limit]);
-    res.json(result.rows);
-  } catch (error) {
-    console.error('Erreur récupération distributeurs proches:', error);
-    res.status(500).json({ error: 'Erreur interne du serveur' });
-  }
 });
 
 // CRUD Distributeurs (Admin)
 app.post('/api/admin/distributeurs', authenticateToken, async (req, res) => {
-  try {
-    const { nom, type, latitude, longitude, adresse, ville, description, images } = req.body;
-    
-    const result = await pool.query(
-      `INSERT INTO distributeurs (nom, type, latitude, longitude, adresse, ville, description) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [nom, type, latitude, longitude, adresse, ville, description]
-    );
+    try {
+        const distributeurData = req.body;
 
-    const distributeur = result.rows[0];
+        // Validation des données
+        if (!distributeurData.nom || !distributeurData.type || !distributeurData.latitude || 
+            !distributeurData.longitude || !distributeurData.adresse || !distributeurData.ville) {
+            return res.status(400).json({ 
+                success: false,
+                error: 'Tous les champs obligatoires doivent être remplis' 
+            });
+        }
 
-    // Gérer les images
-    if (images && images.length > 0) {
-      for (const imageData of images) {
-        await pool.query(
-          'INSERT INTO distributeur_images (distributeur_id, image_url) VALUES ($1, $2)',
-          [distributeur.id, imageData]
-        );
-      }
+        const distributeur = await DatabaseManager.createDistributeur(distributeurData);
+
+        await DatabaseManager.logAction('Création distributeur', req.user.id, {
+            distributeur_id: distributeur.id,
+            nom: distributeur.nom
+        });
+
+        res.status(201).json({
+            success: true,
+            data: distributeur
+        });
+    } catch (error) {
+        console.error('Erreur création distributeur:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Erreur lors de la création du distributeur' 
+        });
     }
-
-    res.status(201).json(distributeur);
-  } catch (error) {
-    console.error('Erreur création distributeur:', error);
-    res.status(500).json({ error: 'Erreur interne du serveur' });
-  }
 });
 
 app.put('/api/admin/distributeurs/:id', authenticateToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { nom, type, latitude, longitude, adresse, ville, description } = req.body;
-    
-    const result = await pool.query(
-      `UPDATE distributeurs 
-       SET nom = $1, type = $2, latitude = $3, longitude = $4, adresse = $5, ville = $6, description = $7, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $8 RETURNING *`,
-      [nom, type, latitude, longitude, adresse, ville, description, id]
-    );
+    try {
+        const { id } = req.params;
+        const distributeurData = req.body;
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Distributeur non trouvé' });
+        const distributeur = await DatabaseManager.updateDistributeur(id, distributeurData);
+
+        if (!distributeur) {
+            return res.status(404).json({ 
+                success: false,
+                error: 'Distributeur non trouvé' 
+            });
+        }
+
+        await DatabaseManager.logAction('Modification distributeur', req.user.id, {
+            distributeur_id: id,
+            nom: distributeur.nom
+        });
+
+        res.json({
+            success: true,
+            data: distributeur
+        });
+    } catch (error) {
+        console.error('Erreur modification distributeur:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Erreur lors de la modification du distributeur' 
+        });
     }
-
-    res.json(result.rows[0]);
-  } catch (error) {
-    console.error('Erreur modification distributeur:', error);
-    res.status(500).json({ error: 'Erreur interne du serveur' });
-  }
 });
 
 app.delete('/api/admin/distributeurs/:id', authenticateToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    await pool.query('DELETE FROM distributeur_images WHERE distributeur_id = $1', [id]);
-    const result = await pool.query('DELETE FROM distributeurs WHERE id = $1 RETURNING *', [id]);
+    try {
+        const { id } = req.params;
+        
+        const distributeur = await DatabaseManager.deleteDistributeur(id);
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Distributeur non trouvé' });
+        if (!distributeur) {
+            return res.status(404).json({ 
+                success: false,
+                error: 'Distributeur non trouvé' 
+            });
+        }
+
+        await DatabaseManager.logAction('Suppression distributeur', req.user.id, {
+            distributeur_id: id,
+            nom: distributeur.nom
+        });
+
+        res.json({
+            success: true,
+            message: 'Distributeur supprimé avec succès',
+            data: distributeur
+        });
+    } catch (error) {
+        console.error('Erreur suppression distributeur:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Erreur lors de la suppression du distributeur' 
+        });
     }
-
-    res.json({ message: 'Distributeur supprimé avec succès' });
-  } catch (error) {
-    console.error('Erreur suppression distributeur:', error);
-    res.status(500).json({ error: 'Erreur interne du serveur' });
-  }
 });
 
-// Statistiques
+// Statistiques avancées
 app.get('/api/admin/statistiques', authenticateToken, async (req, res) => {
-  try {
-    const totalDistributeurs = await pool.query('SELECT COUNT(*) FROM distributeurs');
-    const distributeursParVille = await pool.query('SELECT ville, COUNT(*) FROM distributeurs GROUP BY ville');
-    const distributeursParType = await pool.query('SELECT type, COUNT(*) FROM distributeurs GROUP BY type');
-    
-    res.json({
-      total: parseInt(totalDistributeurs.rows[0].count),
-      parVille: distributeursParVille.rows,
-      parType: distributeursParType.rows
-    });
-  } catch (error) {
-    console.error('Erreur récupération statistiques:', error);
-    res.status(500).json({ error: 'Erreur interne du serveur' });
-  }
-});
-
-// Route par défaut
-app.get('*', (req, res) => {
-  res.sendFile(join(__dirname, 'public', 'index.html'));
-});
-
-// Initialisation de la base de données
-async function initDB() {
-  try {
-    // Table admins
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS admins (
-        id SERIAL PRIMARY KEY,
-        username VARCHAR(50) UNIQUE NOT NULL,
-        password_hash VARCHAR(255) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Table distributeurs
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS distributeurs (
-        id SERIAL PRIMARY KEY,
-        nom VARCHAR(255) NOT NULL,
-        type VARCHAR(50) NOT NULL,
-        latitude DECIMAL(10, 8) NOT NULL,
-        longitude DECIMAL(11, 8) NOT NULL,
-        adresse TEXT NOT NULL,
-        ville VARCHAR(100) NOT NULL,
-        description TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Table images des distributeurs
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS distributeur_images (
-        id SERIAL PRIMARY KEY,
-        distributeur_id INTEGER REFERENCES distributeurs(id) ON DELETE CASCADE,
-        image_url TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Créer un admin par défaut
-    const adminExists = await pool.query('SELECT * FROM admins WHERE username = $1', ['admin']);
-    if (adminExists.rows.length === 0) {
-      const hashedPassword = await bcrypt.hash('admin123', 10);
-      await pool.query(
-        'INSERT INTO admins (username, password_hash) VALUES ($1, $2)',
-        ['admin', hashedPassword]
-      );
-      console.log('Admin créé: admin / admin123');
+    try {
+        const statistiques = await DatabaseManager.getStatistiques();
+        
+        res.json({
+            success: true,
+            data: statistiques
+        });
+    } catch (error) {
+        console.error('Erreur récupération statistiques:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Erreur lors de la récupération des statistiques' 
+        });
     }
+});
 
-    console.log('Base de données initialisée avec succès');
-  } catch (error) {
-    console.error('Erreur initialisation base de données:', error);
-  }
+// Gestion des administrateurs
+app.get('/api/admin/admins', authenticateToken, async (req, res) => {
+    try {
+        const result = await DatabaseManager.pool.query(
+            'SELECT id, username, email, full_name, permissions, is_active, last_login, created_at FROM admins ORDER BY created_at DESC'
+        );
+        
+        res.json({
+            success: true,
+            data: result.rows
+        });
+    } catch (error) {
+        console.error('Erreur récupération admins:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Erreur lors de la récupération des administrateurs' 
+        });
+    }
+});
+
+// Gestion des avis
+app.get('/api/admin/avis', authenticateToken, async (req, res) => {
+    try {
+        const { statut, limit = 50, offset = 0 } = req.query;
+        
+        let query = `
+            SELECT a.*, d.nom as distributeur_nom
+            FROM avis a
+            JOIN distributeurs d ON a.distributeur_id = d.id
+            WHERE 1=1
+        `;
+        const params = [];
+        let paramCount = 0;
+
+        if (statut) {
+            paramCount++;
+            query += ` AND a.statut = $${paramCount}`;
+            params.push(statut);
+        }
+
+        query += ` ORDER BY a.created_at DESC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
+        params.push(parseInt(limit), parseInt(offset));
+
+        const result = await DatabaseManager.pool.query(query, params);
+        
+        res.json({
+            success: true,
+            data: result.rows
+        });
+    } catch (error) {
+        console.error('Erreur récupération avis:', error);
+        res.status(500).json({ 
+            success: false,
+            error: 'Erreur lors de la récupération des avis' 
+        });
+    }
+});
+
+// Route de santé
+app.get('/api/health', (req, res) => {
+    res.json({ 
+        success: true,
+        message: 'CTL-LOKET API is running',
+        timestamp: new Date().toISOString(),
+        version: '2.0.0'
+    });
+});
+
+// Gestion des erreurs 404
+app.use('/api/*', (req, res) => {
+    res.status(404).json({ 
+        success: false,
+        error: 'Endpoint non trouvé' 
+    });
+});
+
+// Route fallback pour SPA
+app.get('*', (req, res) => {
+    res.sendFile(join(__dirname, 'public', 'index.html'));
+});
+
+// Fonction utilitaire pour calculer la distance
+function calculateDistance(lat1, lng1, lat2, lng2) {
+    const R = 6371; // Rayon de la Terre en km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = 
+        Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+        Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
 }
 
+// Démarrage du serveur
 app.listen(PORT, () => {
-  console.log(`Serveur CTL-LOKET démarré sur le port ${PORT}`);
-  initDB();
+    console.log(`🚀 Serveur CTL-LOKET démarré sur le port ${PORT}`);
+    console.log(`📊 Environnement: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`🌐 URL: http://localhost:${PORT}`);
 });
