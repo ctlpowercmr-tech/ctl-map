@@ -1,7 +1,7 @@
 {
   "name": "ctl-loket",
-  "version": "2.0.0",
-  "description": "Système de localisation intelligent de distributeurs",
+  "version": "3.0.0",
+  "description": "Système de localisation intelligent de distributeurs - Version Complète",
   "type": "module",
   "scripts": {
     "dev": "node server.js",
@@ -17,7 +17,8 @@
     "multer": "^1.4.5-lts.1",
     "helmet": "^7.1.0",
     "express-rate-limit": "^7.1.5",
-    "@vercel/postgres": "^0.8.0"
+    "node-cron": "^3.0.3",
+    "compression": "^1.7.4"
   },
   "engines": {
     "node": ">=18.0.0"
