@@ -1,5 +1,5 @@
 // Configuration globale
-let MAPBOX_TOKEN = 'pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw';
+let MAPBOX_TOKEN = 'pk.eyJ1IjoiY3RscG93ZXIiLCJhIjoiY21oem5tbDE4MGczeDJscXowbDY0bjJoaiJ9.jfJUv9lYDFWLwqm3eZq6Nw';
 
 // Charger la configuration
 async function loadConfig() {
@@ -567,3 +567,4 @@ class CTLLoketApp {
 document.addEventListener('DOMContentLoaded', () => {
     window.app = new CTLLoketApp();
 });
+
