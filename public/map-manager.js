@@ -18,7 +18,7 @@ class MapManager {
 
     async init(containerId) {
         // Token Mapbox - À remplacer par votre token
-        mapboxgl.accessToken = 'pk.eyJ1IjoiY3RsLWxvY2F0aW9uIiwiYSI6ImNsb2Z5a2V1bTAwNG0ya3Bkdmx1cG1zN2kifQ.votre_token_ici';
+       pk.eyJ1IjoiY3RscG93ZXIiLCJhIjoiY21oem5tbDE4MGczeDJscXowbDY0bjJoaiJ9.jfJUv9lYDFWLwqm3eZq6Nw';
 
         this.map = new mapboxgl.Map({
             container: containerId,
