@@ -6,7 +6,8 @@
     <title>CTL-LOKET - Localisation Intelligente</title>
     <link rel="stylesheet" href="styles.css">
     <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Font Awesome optimisé -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer">
 </head>
 <body>
     <!-- Interface Utilisateur -->
@@ -26,10 +27,6 @@
                     <button class="nav-btn" data-view="list">
                         <i class="fas fa-list"></i>
                         <span>Liste</span>
-                    </button>
-                    <button class="nav-btn" data-view="radar">
-                        <i class="fas fa-radar"></i>
-                        <span>Radar</span>
                     </button>
                 </nav>
                 <div class="header-actions">
@@ -205,7 +202,8 @@
     </div>
 
     <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Chart.js optimisé -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script type="module" src="app.js"></script>
 </body>
 </html>
