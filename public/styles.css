@@ -11,7 +11,6 @@
     --error-color: #ff4444;
     --card-bg: rgba(255, 255, 255, 0.05);
     --glass-bg: rgba(255, 255, 255, 0.1);
-    --blur: blur(10px);
 }
 
 [data-theme="light"] {
@@ -33,7 +32,7 @@
 }
 
 body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     background: var(--primary-bg);
     color: var(--text-primary);
     overflow: hidden;
@@ -50,7 +49,6 @@ body {
 .tesla-header {
     background: var(--secondary-bg);
     border-bottom: 1px solid var(--border-color);
-    backdrop-filter: var(--blur);
     position: sticky;
     top: 0;
     z-index: 1000;
@@ -292,21 +290,6 @@ body {
     font-size: 0.8rem;
 }
 
-.rating {
-    display: flex;
-    align-items: center;
-    gap: 0.25rem;
-    font-size: 0.8rem;
-}
-
-.rating i {
-    color: var(--warning-color);
-}
-
-.rating-text {
-    color: var(--text-secondary);
-}
-
 /* Map Container */
 .map-container {
     flex: 1;
@@ -329,7 +312,6 @@ body {
 
 .map-control-btn {
     background: var(--glass-bg);
-    backdrop-filter: var(--blur);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
     width: 40px;
@@ -356,7 +338,6 @@ body {
 
 .info-card {
     background: var(--glass-bg);
-    backdrop-filter: var(--blur);
     border: 1px solid var(--border-color);
     border-radius: 12px;
     padding: 1rem;
@@ -384,7 +365,6 @@ body {
 /* Styles pour les marqueurs de carte */
 .distributeur-marker {
     cursor: pointer;
-    transition: all 0.3s ease;
 }
 
 .marker-content {
@@ -418,19 +398,6 @@ body {
     white-space: nowrap;
 }
 
-.marker-rating {
-    background: white;
-    color: var(--warning-color);
-    padding: 0.2rem 0.4rem;
-    border-radius: 8px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 0.1rem;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
-}
-
 /* User Marker */
 .user-marker {
     z-index: 1000;
@@ -445,7 +412,6 @@ body {
 .user-marker-content i {
     color: var(--error-color);
     font-size: 1.2rem;
-    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
 }
 
 .pulse-ring {
@@ -480,7 +446,6 @@ body {
     width: 100%;
     height: 100%;
     background: rgba(0, 0, 0, 0.8);
-    backdrop-filter: blur(5px);
     z-index: 2000;
     align-items: center;
     justify-content: center;
@@ -498,18 +463,6 @@ body {
     max-width: 500px;
     max-height: 90vh;
     overflow: hidden;
-    animation: modalSlideIn 0.3s ease;
-}
-
-@keyframes modalSlideIn {
-    from {
-        opacity: 0;
-        transform: translateY(-50px) scale(0.9);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-    }
 }
 
 .modal-header {
@@ -563,34 +516,6 @@ body {
     border: 1px solid var(--border-color);
 }
 
-.image-item.primary img {
-    border-color: var(--accent-color);
-}
-
-.primary-badge {
-    position: absolute;
-    top: 0.25rem;
-    right: 0.25rem;
-    background: var(--accent-color);
-    color: white;
-    padding: 0.1rem 0.3rem;
-    border-radius: 4px;
-    font-size: 0.6rem;
-    font-weight: 600;
-}
-
-.no-image {
-    text-align: center;
-    padding: 2rem;
-    color: var(--text-secondary);
-}
-
-.no-image i {
-    font-size: 3rem;
-    margin-bottom: 1rem;
-    opacity: 0.5;
-}
-
 .distributeur-info {
     margin-top: 1rem;
 }
@@ -617,87 +542,6 @@ body {
     color: var(--text-secondary);
     line-height: 1.5;
     margin-bottom: 1.5rem;
-}
-
-/* Section Avis */
-.avis-section {
-    margin-top: 1.5rem;
-    padding-top: 1.5rem;
-    border-top: 1px solid var(--border-color);
-}
-
-.avis-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1rem;
-}
-
-.overall-rating {
-    text-align: center;
-}
-
-.rating-big {
-    font-size: 2rem;
-    font-weight: 700;
-    color: var(--accent-color);
-}
-
-.rating-stars {
-    font-size: 1rem;
-    color: var(--warning-color);
-    margin: 0.25rem 0;
-}
-
-.rating-count {
-    color: var(--text-secondary);
-    font-size: 0.8rem;
-}
-
-.add-review {
-    background: var(--card-bg);
-    padding: 1rem;
-    border-radius: 8px;
-    border: 1px solid var(--border-color);
-}
-
-.add-review h5 {
-    margin-bottom: 0.75rem;
-    color: var(--text-primary);
-}
-
-.rating-input .stars {
-    display: flex;
-    gap: 0.25rem;
-    margin-bottom: 0.75rem;
-}
-
-.rating-input .stars i {
-    font-size: 1.2rem;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: color 0.2s ease;
-}
-
-.rating-input .stars i:hover {
-    color: var(--warning-color);
-}
-
-.rating-input .stars i.fas {
-    color: var(--warning-color);
-}
-
-.rating-input textarea {
-    width: 100%;
-    padding: 0.75rem;
-    background: var(--primary-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 0.9rem;
-    resize: vertical;
-    min-height: 80px;
-    margin-bottom: 0.75rem;
 }
 
 .modal-footer {
@@ -861,12 +705,6 @@ body {
     padding: 0.75rem;
     background: var(--card-bg);
     border-radius: 8px;
-    transition: all 0.3s ease;
-}
-
-.step-item.arrival {
-    background: rgba(0, 212, 255, 0.1);
-    border: 1px solid var(--accent-color);
 }
 
 .step-icon {
@@ -887,86 +725,6 @@ body {
 .step-distance {
     color: var(--text-secondary);
     font-size: 0.8rem;
-}
-
-/* Notifications */
-.notification {
-    position: fixed;
-    top: 100px;
-    right: 2rem;
-    background: var(--secondary-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 1rem;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    transform: translateX(400px);
-    transition: transform 0.3s ease;
-    z-index: 3000;
-    max-width: 350px;
-}
-
-.notification.show {
-    transform: translateX(0);
-}
-
-.notification.success {
-    border-left: 4px solid var(--success-color);
-}
-
-.notification.error {
-    border-left: 4px solid var(--error-color);
-}
-
-.notification i {
-    font-size: 1.2rem;
-}
-
-.notification.success i {
-    color: var(--success-color);
-}
-
-.notification.error i {
-    color: var(--error-color);
-}
-
-.notification span {
-    flex: 1;
-    font-size: 0.9rem;
-}
-
-.close-notification {
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    font-size: 1.1rem;
-    padding: 0;
-    width: 20px;
-    height: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.close-notification:hover {
-    color: var(--text-primary);
-}
-
-/* Animations d'arrivée */
-.arrival-pulse {
-    animation: arrivalPulse 1s ease-in-out 3;
-}
-
-@keyframes arrivalPulse {
-    0%, 100% {
-        transform: scale(1);
-    }
-    50% {
-        transform: scale(1.2);
-    }
 }
 
 /* États de chargement */
@@ -1044,12 +802,6 @@ body {
         right: 0;
         bottom: 0;
     }
-
-    .notification {
-        right: 1rem;
-        left: 1rem;
-        max-width: none;
-    }
 }
 
 /* Améliorations pour l'accessibilité */
@@ -1091,4 +843,21 @@ button:disabled {
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--accent-color);
+}
+
+/* Correction pour les sélecteurs invalides */
+:fullscreen {
+    /* Styles pour le mode plein écran */
+}
+
+:-webkit-full-screen {
+    /* Styles pour WebKit */
+}
+
+:-moz-full-screen {
+    /* Styles pour Firefox */
+}
+
+:-ms-fullscreen {
+    /* Styles pour Internet Explorer */
 }
