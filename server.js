@@ -1,9 +1,6 @@
 import express from 'express';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import dotenv from 'dotenv';
-
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -11,50 +8,69 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware de base
-app.use(express.json({ limit: '10mb' }));
+// Middleware
+app.use(express.json());
 app.use(express.static(join(__dirname, 'public')));
 
-// Données simulées pour les distributeurs (en attendant la base de données)
+// Données de démonstration
 const distributeurs = [
     {
         id: 1,
-        nom: "Distributeur Bonapp",
+        nom: "Distributeur Bonapp - Akwa",
         type: "nourriture",
         latitude: 4.0511,
         longitude: 9.7679,
-        adresse: "Rue Joss, Douala",
+        adresse: "Rue Joss, Akwa, Douala",
         ville: "Douala",
-        description: "Distributeur de snacks et boissons",
-        images: []
+        description: "Distributeur automatique de snacks, sandwiches et boissons. Ouvert 24h/24.",
+        images: [],
+        telephone: "+237 6XX XXX XXX",
+        prix_moyen: "500 - 2000 FCFA"
     },
     {
         id: 2,
-        nom: "Distributeur Aquavie",
+        nom: "Distributeur Aquavie - Bonanjo",
         type: "boissons",
         latitude: 4.0486,
         longitude: 9.7043,
-        adresse: "Avenue Charles de Gaulle, Douala",
+        adresse: "Avenue Charles de Gaulle, Bonanjo, Douala",
         ville: "Douala",
-        description: "Distributeur d'eau et boissons fraîches",
-        images: []
+        description: "Distributeur d'eau minérale, jus naturels et boissons fraîches.",
+        images: [],
+        telephone: "+237 6XX XXX XXX",
+        prix_moyen: "300 - 1500 FCFA"
     },
     {
         id: 3,
-        nom: "Distributeur TicketPlus",
+        nom: "Distributeur TicketPlus - Deido",
         type: "billets",
         latitude: 4.0444,
         longitude: 9.7013,
-        adresse: "Boulevard de la Liberté, Douala",
+        adresse: "Boulevard de la Liberté, Deido, Douala",
         ville: "Douala",
-        description: "Distributeur de tickets de bus",
-        images: []
+        description: "Distributeur de tickets de bus, rechargement mobile et services numériques.",
+        images: [],
+        telephone: "+237 6XX XXX XXX",
+        prix_moyen: "1000 - 5000 FCFA"
+    },
+    {
+        id: 4,
+        nom: "Distributeur MultiService - Makepe",
+        type: "divers",
+        latitude: 4.0600,
+        longitude: 9.7500,
+        adresse: "Carrefour Makepe, Douala",
+        ville: "Douala",
+        description: "Distributeur multi-services : recharge, paiements, envoi d'argent.",
+        images: [],
+        telephone: "+237 6XX XXX XXX",
+        prix_moyen: "500 - 10000 FCFA"
     }
 ];
 
 // Routes API
 app.get('/api/distributeurs', (req, res) => {
-    const { type, ville, lat, lng, radius = 5 } = req.query;
+    const { type, ville, lat, lng, radius = 10, search } = req.query;
     
     let filteredDistributeurs = [...distributeurs];
 
@@ -66,6 +82,16 @@ app.get('/api/distributeurs', (req, res) => {
     // Filtrage par ville
     if (ville && ville !== 'all') {
         filteredDistributeurs = filteredDistributeurs.filter(d => d.ville === ville);
+    }
+
+    // Recherche texte
+    if (search) {
+        const searchLower = search.toLowerCase();
+        filteredDistributeurs = filteredDistributeurs.filter(d => 
+            d.nom.toLowerCase().includes(searchLower) ||
+            d.adresse.toLowerCase().includes(searchLower) ||
+            d.ville.toLowerCase().includes(searchLower)
+        );
     }
 
     // Calcul des distances si coordonnées fournies
@@ -84,7 +110,8 @@ app.get('/api/distributeurs', (req, res) => {
 
     res.json({
         success: true,
-        data: filteredDistributeurs
+        data: filteredDistributeurs,
+        total: filteredDistributeurs.length
     });
 });
 
@@ -114,6 +141,16 @@ app.get('/api/health', (req, res) => {
     });
 });
 
+// Route pour la configuration
+app.get('/api/config', (req, res) => {
+    res.json({
+        success: true,
+        data: {
+            mapboxToken: process.env.NEXT_PUBLIC_MAPBOX_TOKEN || 'pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw'
+        }
+    });
+});
+
 // Route fallback pour SPA
 app.get('*', (req, res) => {
     res.sendFile(join(__dirname, 'public', 'index.html'));
@@ -135,6 +172,5 @@ function calculateDistance(lat1, lng1, lat2, lng2) {
 // Démarrage du serveur
 app.listen(PORT, () => {
     console.log(`🚀 Serveur CTL-LOKET démarré sur le port ${PORT}`);
-    console.log(`📊 Environnement: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🌐 URL: http://localhost:${PORT}`);
 });
