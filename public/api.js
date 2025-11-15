@@ -535,3 +535,4 @@ class CTLLoketApp {
 document.addEventListener('DOMContentLoaded', () => {
     new CTLLoketApp();
 });
+
