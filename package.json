@@ -1,7 +1,7 @@
 {
   "name": "ctl-loket",
   "version": "3.0.0",
-  "description": "Système de localisation intelligent de distributeurs - Version Tesla",
+  "description": "Système de localisation intelligent de distributeurs",
   "type": "module",
   "scripts": {
     "dev": "node server.js",
@@ -14,7 +14,6 @@
     "jsonwebtoken": "^9.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "multer": "^1.4.5-lts.1",
     "helmet": "^7.1.0",
     "express-rate-limit": "^7.1.5"
   },
