@@ -1,181 +1,79 @@
-class MapManager {
-    constructor() {
-        this.map = null;
-        this.markers = [];
-        this.userMarker = null;
-        this.currentStyleIndex = 0;
-        this.mapStyles = [
-            'mapbox://styles/mapbox/streets-v12',
-            'mapbox://styles/mapbox/outdoors-v12',
-            'mapbox://styles/mapbox/light-v11',
-            'mapbox://styles/mapbox/dark-v11'
-        ];
-    }
-
-    async init(containerId) {
-        // Token Mapbox - Remplacez par votre token
-        mapboxgl.accessToken = 'pk.eyJ1IjoiY3RscG93ZXIiLCJhIjoiY21oem5tbDE4MGczeDJscXowbDY0bjJoaiJ9.jfJUv9lYDFWLwqm3eZq6Nw';
-
-        this.map = new mapboxgl.Map({
-            container: containerId,
-            style: this.mapStyles[this.currentStyleIndex],
-            center: [11.5021, 3.8480], // Centre du Cameroun
-            zoom: 6,
-            pitch: 0,
-            bearing: 0
-        });
-
-        await this.waitForMapLoad();
-        this.setupMapControls();
-    }
-
-    waitForMapLoad() {
-        return new Promise((resolve) => {
-            this.map.on('load', resolve);
-        });
-    }
-
-    setupMapControls() {
-        this.map.addControl(new mapboxgl.NavigationControl());
-        this.map.addControl(new mapboxgl.ScaleControl());
-    }
-
-    updateDistributeurs(distributeurs) {
-        this.clearMarkers();
-        
-        distributeurs.forEach(distributeur => {
-            this.addDistributeurMarker(distributeur);
-        });
-    }
-
-    addDistributeurMarker(distributeur) {
-        const el = document.createElement('div');
-        el.className = 'distributeur-marker';
-        el.innerHTML = this.getMarkerHTML(distributeur);
-        el.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (this.onMarkerClickCallback) {
-                this.onMarkerClickCallback(distributeur);
-            }
-        });
-
-        const marker = new mapboxgl.Marker({
-            element: el,
-            anchor: 'bottom'
-        })
-        .setLngLat([distributeur.longitude, distributeur.latitude])
-        .addTo(this.map);
-
-        this.markers.push({
-            marker,
-            distributeur
-        });
-    }
-
-    getMarkerHTML(distributeur) {
-        const typeIcons = {
-            'nourriture': 'fa-utensils',
-            'boissons': 'fa-wine-bottle',
-            'billets': 'fa-ticket-alt',
-            'divers': 'fa-shopping-cart'
-        };
-
-        const typeColors = {
-            'nourriture': '#e74c3c',
-            'boissons': '#3498db',
-            'billets': '#9b59b6',
-            'divers': '#f39c12'
-        };
-
-        const icon = typeIcons[distributeur.type] || 'fa-map-marker-alt';
-        const color = typeColors[distributeur.type] || '#2c3e50';
-        
-        return `
-            <div class="marker-content">
-                <div class="marker-icon" style="background: ${color}">
-                    <i class="fas ${icon}"></i>
-                </div>
-                ${distributeur.distance ? 
-                    `<div class="marker-distance">${distributeur.distance.toFixed(1)}km</div>` : 
-                    ''
-                }
-            </div>
-        `;
-    }
-
-    addUserMarker(lat, lng) {
-        if (this.userMarker) {
-            this.userMarker.remove();
-        }
-
-        const el = document.createElement('div');
-        el.className = 'user-marker';
-        el.innerHTML = `
-            <div class="user-marker-content">
-                <i class="fas fa-user"></i>
-                <div class="pulse-ring"></div>
-            </div>
-        `;
-
-        this.userMarker = new mapboxgl.Marker({
-            element: el,
-            anchor: 'center'
-        })
-        .setLngLat([lng, lat])
-        .addTo(this.map);
-
-        // Animation de pulsation
-        this.startPulseAnimation(el);
-    }
-
-    startPulseAnimation(element) {
-        const ring = element.querySelector('.pulse-ring');
-        ring.style.animation = 'pulse 2s infinite';
-    }
-
-    clearMarkers() {
-        this.markers.forEach(({ marker }) => marker.remove());
-        this.markers = [];
-    }
-
-    flyTo(lat, lng, zoom = 15) {
-        this.map.flyTo({
-            center: [lng, lat],
-            zoom: zoom,
-            duration: 2000
-        });
-    }
-
-    onMarkerClick(callback) {
-        this.onMarkerClickCallback = callback;
-    }
-
-    cycleStyle() {
-        this.currentStyleIndex = (this.currentStyleIndex + 1) % this.mapStyles.length;
-        this.map.setStyle(this.mapStyles[this.currentStyleIndex]);
-    }
-}
-
+// Client API pour CTL-LOKET
 class API {
     constructor() {
         this.baseURL = window.location.origin;
+        this.token = localStorage.getItem('adminToken');
+        this.retryCount = 0;
+        this.maxRetries = 3;
     }
 
-    async request(endpoint) {
+    async request(endpoint, options = {}) {
+        const url = `${this.baseURL}${endpoint}`;
+        const config = {
+            headers: {
+                'Content-Type': 'application/json',
+                ...options.headers
+            },
+            ...options
+        };
+
+        if (this.token) {
+            config.headers.Authorization = `Bearer ${this.token}`;
+        }
+
         try {
-            const response = await fetch(`${this.baseURL}${endpoint}`);
-            return await response.json();
+            const response = await fetch(url, config);
+            
+            if (!response.ok) {
+                // Tentative de récupération du message d'erreur
+                let errorMessage = `HTTP error! status: ${response.status}`;
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.error || errorMessage;
+                } catch {
+                    // Ignorer si le corps n'est pas du JSON
+                }
+                
+                throw new Error(errorMessage);
+            }
+
+            const data = await response.json();
+            return data;
+
         } catch (error) {
-            console.error('API request failed:', error);
-            throw error;
+            console.error(`❌ API request failed: ${endpoint}`, error);
+            
+            // Retry logic pour les erreurs réseau
+            if (this.shouldRetry(error) && this.retryCount < this.maxRetries) {
+                this.retryCount++;
+                console.log(`🔄 Tentative ${this.retryCount}/${this.maxRetries} pour ${endpoint}`);
+                await this.delay(1000 * this.retryCount);
+                return this.request(endpoint, options);
+            }
+            
+            this.retryCount = 0;
+            throw this.handleError(error);
         }
     }
+
+    shouldRetry(error) {
+        // Retry seulement pour les erreurs réseau
+        return error.message.includes('NetworkError') || 
+               error.message.includes('Failed to fetch') ||
+               error.message.includes('Network request failed');
+    }
+
+    delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    // ==================== DISTRIBUTEURS ====================
 
     async getDistributeurs(filters = {}) {
         const params = new URLSearchParams();
         
         Object.entries(filters).forEach(([key, value]) => {
-            if (value !== undefined && value !== null && value !== '') {
+            if (value !== undefined && value !== null && value !== '' && value !== 'all') {
                 params.append(key, value);
             }
         });
@@ -185,354 +83,299 @@ class API {
     }
 
     async getDistributeur(id) {
+        if (!id) {
+            throw new Error('ID distributeur requis');
+        }
         return await this.request(`/api/distributeurs/${id}`);
     }
-}
 
-class CTLLoketApp {
-    constructor() {
-        this.mapManager = new MapManager();
-        this.api = new API();
-        this.currentDistributeurs = [];
-        this.userPosition = null;
+    async getProchesDistributeurs(lat, lng, radius = 5) {
+        if (!lat || !lng) {
+            throw new Error('Coordonnées requises');
+        }
         
-        this.init();
+        const params = new URLSearchParams({ lat, lng, radius });
+        return await this.request(`/api/distributeurs?${params}`);
     }
 
-    async init() {
-        await this.initMap();
-        this.bindEvents();
-        this.loadDistributeurs();
-        this.setupTheme();
-    }
+    // ==================== ADMIN - DISTRIBUTEURS ====================
 
-    async initMap() {
-        await this.mapManager.init('map');
-        this.mapManager.onMarkerClick(this.handleMarkerClick.bind(this));
-    }
+    async createDistributeur(distributeurData) {
+        if (!distributeurData.nom || !distributeurData.type || !distributeurData.latitude || !distributeurData.longitude) {
+            throw new Error('Données distributeur incomplètes');
+        }
 
-    bindEvents() {
-        // Navigation
-        document.querySelectorAll('.nav-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => this.switchView(e.currentTarget.dataset.view));
-        });
-
-        // Recherche
-        document.getElementById('searchInput').addEventListener('input', 
-            this.debounce(this.handleSearch.bind(this), 300)
-        );
-
-        // Filtres
-        document.getElementById('typeFilter').addEventListener('change', 
-            this.handleFilter.bind(this)
-        );
-        document.getElementById('villeFilter').addEventListener('change', 
-            this.handleFilter.bind(this)
-        );
-
-        // Localisation
-        document.getElementById('locateBtn').addEventListener('click', 
-            this.locateUser.bind(this)
-        );
-
-        // Thème
-        document.getElementById('themeToggle').addEventListener('click', 
-            this.toggleTheme.bind(this)
-        );
-
-        // Admin
-        document.getElementById('adminAccess').addEventListener('click', 
-            this.showAdminLogin.bind(this)
-        );
-
-        // Modal
-        document.querySelector('.close-btn').addEventListener('click', 
-            this.hideModal.bind(this)
-        );
-        document.getElementById('closeNav').addEventListener('click', 
-            this.hideNavigation.bind(this)
-        );
-
-        // Navigation
-        document.getElementById('navigateBtn').addEventListener('click', 
-            this.startNavigation.bind(this)
-        );
-
-        // Admin Login
-        document.getElementById('adminLoginForm').addEventListener('submit', 
-            this.handleAdminLogin.bind(this)
-        );
-
-        // Map Controls
-        document.getElementById('mapStyleBtn').addEventListener('click', 
-            this.cycleMapStyle.bind(this)
-        );
-        document.getElementById('fullscreenBtn').addEventListener('click', 
-            this.toggleFullscreen.bind(this)
-        );
-
-        // Fermer modals
-        document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('modal')) {
-                this.hideModal();
-                this.hideAdminLogin();
-            }
+        return await this.request('/api/admin/distributeurs', {
+            method: 'POST',
+            body: JSON.stringify(distributeurData)
         });
     }
 
-    async loadDistributeurs(filters = {}) {
+    async updateDistributeur(id, distributeurData) {
+        if (!id) {
+            throw new Error('ID distributeur requis');
+        }
+
+        return await this.request(`/api/admin/distributeurs/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(distributeurData)
+        });
+    }
+
+    async deleteDistributeur(id) {
+        if (!id) {
+            throw new Error('ID distributeur requis');
+        }
+
+        return await this.request(`/api/admin/distributeurs/${id}`, {
+            method: 'DELETE'
+        });
+    }
+
+    // ==================== AVIS ====================
+
+    async createAvis(avisData) {
+        if (!avisData.distributeur_id || !avisData.note) {
+            throw new Error('Distributeur ID et note requis');
+        }
+
+        if (avisData.note < 1 || avisData.note > 5) {
+            throw new Error('La note doit être entre 1 et 5');
+        }
+
+        return await this.request('/api/avis', {
+            method: 'POST',
+            body: JSON.stringify(avisData)
+        });
+    }
+
+    async getAvis(distributeurId) {
+        if (!distributeurId) {
+            throw new Error('ID distributeur requis');
+        }
+
+        return await this.request(`/api/avis?distributeur_id=${distributeurId}`);
+    }
+
+    // ==================== ADMIN - STATISTIQUES ====================
+
+    async getStatistiques() {
+        return await this.request('/api/admin/statistiques');
+    }
+
+    // ==================== ADMIN - GESTION DES AVIS ====================
+
+    async getAvisAdmin(filters = {}) {
+        const params = new URLSearchParams(filters);
+        return await this.request(`/api/admin/avis?${params}`);
+    }
+
+    async updateAvisStatut(avisId, statut) {
+        if (!avisId || !statut) {
+            throw new Error('ID avis et statut requis');
+        }
+
+        return await this.request(`/api/admin/avis/${avisId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ statut })
+        });
+    }
+
+    // ==================== ADMIN - GESTION DES ADMINISTRATEURS ====================
+
+    async getAdmins() {
+        return await this.request('/api/admin/admins');
+    }
+
+    async createAdmin(adminData) {
+        if (!adminData.username || !adminData.password) {
+            throw new Error('Nom d\'utilisateur et mot de passe requis');
+        }
+
+        return await this.request('/api/admin/admins', {
+            method: 'POST',
+            body: JSON.stringify(adminData)
+        });
+    }
+
+    async updateAdmin(id, adminData) {
+        if (!id) {
+            throw new Error('ID admin requis');
+        }
+
+        return await this.request(`/api/admin/admins/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(adminData)
+        });
+    }
+
+    // ==================== AUTHENTIFICATION ====================
+
+    async login(username, password) {
+        if (!username || !password) {
+            throw new Error('Nom d\'utilisateur et mot de passe requis');
+        }
+
+        const result = await this.request('/api/admin/login', {
+            method: 'POST',
+            body: JSON.stringify({ username, password })
+        });
+
+        if (result.success && result.data.token) {
+            this.token = result.data.token;
+            localStorage.setItem('adminToken', this.token);
+            localStorage.setItem('adminData', JSON.stringify(result.data.admin));
+            
+            // Réinitialiser le compteur de tentatives après une connexion réussie
+            this.retryCount = 0;
+        }
+
+        return result;
+    }
+
+    logout() {
+        this.token = null;
+        this.retryCount = 0;
+        localStorage.removeItem('adminToken');
+        localStorage.removeItem('adminData');
+    }
+
+    isAuthenticated() {
+        return !!this.token;
+    }
+
+    getAdminData() {
         try {
-            const response = await this.api.getDistributeurs(filters);
-            
-            if (response.success) {
-                this.currentDistributeurs = response.data;
-                this.mapManager.updateDistributeurs(this.currentDistributeurs);
-                this.updateResultsList(this.currentDistributeurs);
-            }
-        } catch (error) {
-            console.error('Erreur chargement distributeurs:', error);
-            this.showError('Erreur lors du chargement des distributeurs');
+            const adminData = localStorage.getItem('adminData');
+            return adminData ? JSON.parse(adminData) : null;
+        } catch {
+            return null;
         }
     }
 
-    updateResultsList(distributeurs) {
-        const container = document.getElementById('resultsList');
-        container.innerHTML = '';
+    // ==================== UTILITAIRES ====================
 
-        if (distributeurs.length === 0) {
-            container.innerHTML = '<div class="no-results">Aucun distributeur trouvé</div>';
-            return;
-        }
-
-        distributeurs.forEach(distributeur => {
-            const card = this.createDistributeurCard(distributeur);
-            container.appendChild(card);
-        });
-    }
-
-    createDistributeurCard(distributeur) {
-        const card = document.createElement('div');
-        card.className = 'distributeur-card';
-        card.innerHTML = `
-            <div class="card-header">
-                <div>
-                    <h4>${distributeur.nom}</h4>
-                    <div class="card-info">
-                        <span class="type">${this.getTypeLabel(distributeur.type)}</span>
-                        <span class="address">${distributeur.adresse}</span>
-                    </div>
-                </div>
-                ${distributeur.distance ? 
-                    `<span class="distance-badge">${distributeur.distance.toFixed(1)}km</span>` : 
-                    ''
-                }
-            </div>
-        `;
-
-        card.addEventListener('click', () => {
-            this.showDistributeurDetails(distributeur);
-        });
-
-        return card;
-    }
-
-    async handleMarkerClick(distributeur) {
-        this.showDistributeurDetails(distributeur);
-    }
-
-    showDistributeurDetails(distributeur) {
-        document.getElementById('distributeurName').textContent = distributeur.nom;
-        document.getElementById('distributeurType').textContent = this.getTypeLabel(distributeur.type);
-        document.getElementById('distributeurAddress').textContent = distributeur.adresse;
-        document.getElementById('distributeurVille').textContent = distributeur.ville;
-        document.getElementById('distributeurDescription').textContent = 
-            distributeur.description || 'Aucune description disponible';
-
-        this.showModal('distributeurModal');
-    }
-
-    async locateUser() {
+    async healthCheck() {
         try {
-            const btn = document.getElementById('locateBtn');
-            btn.classList.add('loading');
-            
-            const position = await this.getCurrentPosition();
-            this.userPosition = position;
-            
-            this.mapManager.flyTo(position.coords.latitude, position.coords.longitude);
-            this.mapManager.addUserMarker(position.coords.latitude, position.coords.longitude);
-            
-            await this.loadDistributeurs({
-                lat: position.coords.latitude, 
-                lng: position.coords.longitude
-            });
-            
-            btn.classList.remove('loading');
+            return await this.request('/api/health');
         } catch (error) {
-            console.error('Erreur géolocalisation:', error);
-            this.showError('Impossible d\'accéder à votre position');
-            document.getElementById('locateBtn').classList.remove('loading');
+            return {
+                success: false,
+                error: 'Serveur indisponible'
+            };
         }
     }
 
-    getCurrentPosition() {
-        return new Promise((resolve, reject) {
-            if (!navigator.geolocation) {
-                reject(new Error('Géolocalisation non supportée'));
+    async uploadImage(file) {
+        return new Promise((resolve, reject) => {
+            // Simulation d'upload - dans une vraie app, envoyer au serveur
+            if (!file) {
+                reject(new Error('Fichier requis'));
                 return;
             }
 
-            navigator.geolocation.getCurrentPosition(resolve, reject, {
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 60000
-            });
+            if (!file.type.startsWith('image/')) {
+                reject(new Error('Type de fichier non supporté'));
+                return;
+            }
+
+            if (file.size > 5 * 1024 * 1024) { // 5MB
+                reject(new Error('Fichier trop volumineux (max 5MB)'));
+                return;
+            }
+
+            const reader = new FileReader();
+            
+            reader.onload = (e) => {
+                // Simuler un délai d'upload
+                setTimeout(() => {
+                    resolve(e.target.result);
+                }, 1000);
+            };
+            
+            reader.onerror = () => {
+                reject(new Error('Erreur de lecture du fichier'));
+            };
+            
+            reader.readAsDataURL(file);
         });
     }
 
-    async startNavigation() {
-        if (!this.userPosition) {
-            this.showError('Localisez-vous d\'abord pour démarrer la navigation');
-            return;
+    // ==================== GESTION DES ERREURS ====================
+
+    handleError(error) {
+        console.error('API Error:', error);
+        
+        const message = error.message || 'Erreur inconnue';
+        
+        if (message.includes('NetworkError') || message.includes('Failed to fetch')) {
+            return new Error('Problème de connexion réseau. Vérifiez votre connexion internet.');
+        }
+        
+        if (message.includes('401')) {
+            this.logout();
+            return new Error('Session expirée. Veuillez vous reconnecter.');
+        }
+        
+        if (message.includes('403')) {
+            return new Error('Accès refusé. Permissions insuffisantes.');
+        }
+        
+        if (message.includes('404')) {
+            return new Error('Ressource non trouvée.');
+        }
+        
+        if (message.includes('500')) {
+            return new Error('Erreur interne du serveur. Veuillez réessayer.');
+        }
+        
+        return error;
+    }
+
+    // ==================== CACHE ET PERFORMANCE ====================
+
+    async getDistributeursWithCache(filters = {}, forceRefresh = false) {
+        const cacheKey = `distributeurs_${JSON.stringify(filters)}`;
+        const cached = localStorage.getItem(cacheKey);
+        const cacheTimestamp = localStorage.getItem(`${cacheKey}_timestamp`);
+        const now = Date.now();
+        const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+        if (!forceRefresh && cached && cacheTimestamp && (now - parseInt(cacheTimestamp)) < CACHE_DURATION) {
+            try {
+                return JSON.parse(cached);
+            } catch {
+                // Cache corrompu, continuer avec une requête normale
+            }
         }
 
-        this.showNavigationPanel();
-        this.showSuccess('Navigation démarrée vers le distributeur');
-    }
-
-    // Gestion des vues
-    switchView(view) {
-        document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
-        document.querySelector(`[data-view="${view}"]`).classList.add('active');
-    }
-
-    // Recherche et filtres
-    handleSearch(e) {
-        const query = e.target.value.toLowerCase();
-        const filtered = this.currentDistributeurs.filter(d => 
-            d.nom.toLowerCase().includes(query) ||
-            d.adresse.toLowerCase().includes(query)
-        );
-        this.updateResultsList(filtered);
-    }
-
-    handleFilter() {
-        const type = document.getElementById('typeFilter').value;
-        const ville = document.getElementById('villeFilter').value;
-        
-        const filters = {};
-        if (type !== 'all') filters.type = type;
-        if (ville !== 'all') filters.ville = ville;
-        
-        this.loadDistributeurs(filters);
-    }
-
-    // Gestion du thème
-    setupTheme() {
-        const savedTheme = localStorage.getItem('ctl-loket-theme') || 'dark';
-        document.documentElement.setAttribute('data-theme', savedTheme);
-        this.updateThemeIcon(savedTheme);
-    }
-
-    toggleTheme() {
-        const currentTheme = document.documentElement.getAttribute('data-theme');
-        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-        
-        document.documentElement.setAttribute('data-theme', newTheme);
-        localStorage.setItem('ctl-loket-theme', newTheme);
-        this.updateThemeIcon(newTheme);
-    }
-
-    updateThemeIcon(theme) {
-        const icon = document.querySelector('#themeToggle i');
-        icon.className = theme === 'dark' ? 'fas fa-moon' : 'fas fa-sun';
-    }
-
-    // Admin
-    showAdminLogin() {
-        this.showModal('adminLoginModal');
-    }
-
-    hideAdminLogin() {
-        this.hideModal('adminLoginModal');
-    }
-
-    async handleAdminLogin(e) {
-        e.preventDefault();
-        this.showSuccess('Redirection vers l\'interface admin...');
-        setTimeout(() => {
-            window.location.href = '/admin.html';
-        }, 1000);
-    }
-
-    // Utilitaires
-    showModal(modalId) {
-        document.getElementById(modalId).classList.add('active');
-    }
-
-    hideModal(modalId = null) {
-        if (modalId) {
-            document.getElementById(modalId).classList.remove('active');
-        } else {
-            document.querySelectorAll('.modal').forEach(modal => {
-                modal.classList.remove('active');
-            });
+        try {
+            const result = await this.getDistributeurs(filters);
+            
+            if (result.success) {
+                localStorage.setItem(cacheKey, JSON.stringify(result));
+                localStorage.setItem(`${cacheKey}_timestamp`, now.toString());
+            }
+            
+            return result;
+        } catch (error) {
+            // En cas d'erreur, retourner le cache si disponible
+            if (cached) {
+                console.warn('⚠️ Utilisation du cache en raison d\'une erreur:', error);
+                return JSON.parse(cached);
+            }
+            throw error;
         }
     }
 
-    showNavigationPanel() {
-        document.getElementById('navigationPanel').classList.add('active');
-    }
-
-    hideNavigation() {
-        document.getElementById('navigationPanel').classList.remove('active');
-    }
-
-    showError(message) {
-        alert(`❌ ${message}`);
-    }
-
-    showSuccess(message) {
-        alert(`✅ ${message}`);
-    }
-
-    getTypeLabel(type) {
-        const types = {
-            'nourriture': '🍽️ Nourriture',
-            'boissons': '🥤 Boissons',
-            'billets': '🎫 Billets',
-            'divers': '🛍️ Divers'
-        };
-        return types[type] || type;
-    }
-
-    debounce(func, wait) {
-        let timeout;
-        return function executedFunction(...args) {
-            const later = () => {
-                clearTimeout(timeout);
-                func(...args);
-            };
-            clearTimeout(timeout);
-            timeout = setTimeout(later, wait);
-        };
-    }
-
-    cycleMapStyle() {
-        this.mapManager.cycleStyle();
-    }
-
-    toggleFullscreen() {
-        if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen();
-        } else {
-            document.exitFullscreen();
-        }
+    clearCache() {
+        Object.keys(localStorage).forEach(key => {
+            if (key.startsWith('distributeurs_')) {
+                localStorage.removeItem(key);
+                localStorage.removeItem(`${key}_timestamp`);
+            }
+        });
     }
 }
 
-// Initialisation de l'application
-document.addEventListener('DOMContentLoaded', () => {
-    new CTLLoketApp();
-});
-
+export default API;
