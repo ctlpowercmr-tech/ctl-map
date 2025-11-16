@@ -839,4 +839,167 @@ class AdminApp {
             new Chart(performanceCtx, {
                 type: 'bar',
                 data: {
-                    labels: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', '
+                    labels: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'],
+                    datasets: [{
+                        label: 'Utilisateurs actifs',
+                        data: [65, 59, 80, 81, 56, 55, 40],
+                        backgroundColor: '#00d4ff'
+                    }, {
+                        label: 'Recherches',
+                        data: [28, 48, 40, 19, 86, 27, 90],
+                        backgroundColor: '#9b59b6'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: getComputedStyle(document.documentElement).getPropertyValue('--text-primary')
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                color: getComputedStyle(document.documentElement).getPropertyValue('--text-secondary')
+                            },
+                            grid: {
+                                color: getComputedStyle(document.documentElement).getPropertyValue('--border-color')
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                color: getComputedStyle(document.documentElement).getPropertyValue('--text-secondary')
+                            },
+                            grid: {
+                                color: getComputedStyle(document.documentElement).getPropertyValue('--border-color')
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    loadParametres() {
+        // Charger les paramètres actuels
+        // Cette méthode serait étendue pour charger les paramètres depuis l'API
+        console.log('⚙️ Panneau paramètres chargé');
+    }
+
+    setupRealTimeUpdates() {
+        // Mettre à jour les données périodiquement
+        setInterval(() => {
+            if (document.getElementById('dashboard').classList.contains('active')) {
+                this.loadDashboard();
+            }
+        }, 30000); // Toutes les 30 secondes
+    }
+
+    resetForm() {
+        document.getElementById('addDistributeurForm').reset();
+        document.getElementById('imagePreview').innerHTML = '';
+        this.currentEditingId = null;
+        this.uploadedImages = [];
+        
+        if (this.tempMarker) {
+            this.tempMarker.remove();
+            this.tempMarker = null;
+        }
+        
+        document.querySelector('#ajouter h1').textContent = 'Ajouter un distributeur';
+    }
+
+    logout() {
+        if (confirm('Êtes-vous sûr de vouloir vous déconnecter ?')) {
+            this.auth.logout();
+        }
+    }
+
+    // Utilitaires
+    getTypeLabel(type) {
+        const types = {
+            'nourriture': '🍽️ Nourriture',
+            'boissons': '🥤 Boissons',
+            'billets': '🎫 Billets', 
+            'divers': '🛍️ Divers'
+        };
+        return types[type] || type;
+    }
+
+    escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    showNotification(message, type = 'info') {
+        // Utiliser la même méthode de notification que l'app principale
+        if (window.ctlLoketApp) {
+            window.ctlLoketApp.showNotification(message, type);
+        } else {
+            alert(`${type.toUpperCase()}: ${message}`);
+        }
+    }
+
+    showError(message) {
+        this.showNotification(message, 'error');
+    }
+
+    showLoading(message = 'Chargement...') {
+        // Implémenter un indicateur de chargement spécifique à l'admin
+        console.log('⏳', message);
+    }
+
+    hideLoading() {
+        // Cacher l'indicateur de chargement
+    }
+
+    debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+}
+
+// Initialisation de l'application admin
+let adminApp;
+
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        adminApp = new AdminApp();
+        window.adminApp = adminApp; // Rendre accessible globalement
+        
+    } catch (error) {
+        console.error('❌ Erreur critique AdminApp:', error);
+        
+        // Afficher une page d'erreur
+        document.body.innerHTML = `
+            <div style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; gap: 2rem; background: #0f0f0f; color: white; padding: 2rem;">
+                <i class="fas fa-exclamation-triangle" style="font-size: 4rem; color: #ff4444;"></i>
+                <h1>Erreur de chargement</h1>
+                <p style="text-align: center; max-width: 400px;">
+                    L'interface d'administration n'a pas pu être chargée. 
+                    Vérifiez votre connexion et réessayez.
+                </p>
+                <div style="display: flex; gap: 1rem;">
+                    <button onclick="window.location.reload()" style="background: #00d4ff; color: white; border: none; padding: 1rem 2rem; border-radius: 8px; cursor: pointer;">
+                        <i class="fas fa-redo"></i> Réessayer
+                    </button>
+                    <button onclick="window.location.href = '/'" style="background: #718096; color: white; border: none; padding: 1rem 2rem; border-radius: 8px; cursor: pointer;">
+                        <i class="fas fa-home"></i> Retour à l'accueil
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+});
