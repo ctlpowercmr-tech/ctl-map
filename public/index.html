@@ -2,12 +2,11 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>CTL-LOKET - Localisation Intelligente de Distributeurs</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CTL-LOKET - Localisation Intelligente</title>
     <link rel="stylesheet" href="styles.css">
     <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <div id="app">
@@ -43,81 +42,83 @@
             </div>
         </header>
 
+        <!-- Mobile Menu Button -->
+        <button id="mobileMenuBtn" class="mobile-menu-btn">
+            <i class="fas fa-bars"></i>
+        </button>
+
         <!-- Main Content -->
         <main class="main-content">
-            <!-- Mobile Menu Toggle -->
-            <button id="mobileMenuToggle" class="mobile-menu-toggle">
-                <i class="fas fa-bars"></i>
-            </button>
-
             <!-- Sidebar -->
             <aside class="sidebar" id="sidebar">
-                <div class="sidebar-content">
-                    <div class="search-section">
-                        <div class="search-box">
-                            <i class="fas fa-search"></i>
-                            <input type="text" id="searchInput" placeholder="Rechercher un distributeur...">
-                            <button id="clearSearch" class="clear-search">
-                                <i class="fas fa-times"></i>
-                            </button>
-                        </div>
-                        <button id="locateBtn" class="locate-btn">
-                            <i class="fas fa-location-arrow"></i>
-                            <span>Me localiser</span>
-                        </button>
-                    </div>
+                <div class="sidebar-header">
+                    <h3>Recherche & Filtres</h3>
+                    <button id="closeSidebar" class="close-sidebar">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
 
-                    <div class="filters-section">
-                        <div class="filter-group">
-                            <label for="typeFilter">Type de distributeur</label>
-                            <select id="typeFilter">
-                                <option value="all">Tous les types</option>
-                                <option value="nourriture">🍽️ Nourriture</option>
-                                <option value="boissons">🥤 Boissons</option>
-                                <option value="billets">🎫 Billets</option>
-                                <option value="divers">🛍️ Divers</option>
-                            </select>
-                        </div>
-                        <div class="filter-group">
-                            <label for="villeFilter">Ville</label>
-                            <select id="villeFilter">
-                                <option value="all">Toutes les villes</option>
-                                <option value="Douala">Douala</option>
-                                <option value="Yaoundé">Yaoundé</option>
-                                <option value="Garoua">Garoua</option>
-                                <option value="Bafoussam">Bafoussam</option>
-                            </select>
-                        </div>
+                <div class="search-section">
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="searchInput" placeholder="Rechercher un distributeur...">
                     </div>
+                    <button id="locateBtn" class="locate-btn">
+                        <i class="fas fa-location-arrow"></i>
+                        <span>Me localiser</span>
+                    </button>
+                </div>
 
-                    <div class="advanced-filters">
-                        <div class="filter-group">
-                            <label for="radiusFilter">Rayon de recherche</label>
-                            <select id="radiusFilter">
-                                <option value="5">5 km</option>
-                                <option value="10" selected>10 km</option>
-                                <option value="20">20 km</option>
-                                <option value="50">50 km</option>
-                            </select>
-                        </div>
-                        <div class="filter-group">
-                            <label for="sortFilter">Trier par</label>
-                            <select id="sortFilter">
-                                <option value="distance">Distance</option>
-                                <option value="note">Note</option>
-                                <option value="nom">Nom</option>
-                            </select>
-                        </div>
+                <div class="filters-section">
+                    <div class="filter-group">
+                        <label>Type de distributeur</label>
+                        <select id="typeFilter">
+                            <option value="all">Tous les types</option>
+                            <option value="nourriture">🍽 Nourriture</option>
+                            <option value="boissons">🥤 Boissons</option>
+                            <option value="billets">🎫 Billets</option>
+                            <option value="divers">🛍 Divers</option>
+                        </select>
                     </div>
+                    <div class="filter-group">
+                        <label>Ville</label>
+                        <select id="villeFilter">
+                            <option value="all">Toutes les villes</option>
+                            <option value="Douala">Douala</option>
+                            <option value="Yaoundé">Yaoundé</option>
+                            <option value="Garoua">Garoua</option>
+                        </select>
+                    </div>
+                </div>
 
-                    <div class="results-section">
-                        <div class="section-header">
-                            <h3>Distributeurs à proximité</h3>
-                            <span id="resultsCount" class="results-count">0 résultats</span>
-                        </div>
-                        <div id="resultsList" class="results-list">
-                            <!-- Les résultats seront injectés ici -->
-                        </div>
+                <div class="advanced-filters">
+                    <h4>Filtres Avancés</h4>
+                    <div class="filter-options">
+                        <label class="filter-option">
+                            <input type="checkbox" id="filterOpen" checked>
+                            <span class="checkmark"></span>
+                            Ouverts maintenant
+                        </label>
+                        <label class="filter-option">
+                            <input type="checkbox" id="filterRating" checked>
+                            <span class="checkmark"></span>
+                            Avec évaluations
+                        </label>
+                        <label class="filter-option">
+                            <input type="checkbox" id="filterImages">
+                            <span class="checkmark"></span>
+                            Avec photos
+                        </label>
+                    </div>
+                </div>
+
+                <div class="results-section">
+                    <div class="results-header">
+                        <h3>Distributeurs à proximité</h3>
+                        <span id="resultsCount" class="results-count">0 trouvés</span>
+                    </div>
+                    <div id="resultsList" class="results-list">
+                        <!-- Les résultats seront injectés ici -->
                     </div>
                 </div>
             </aside>
@@ -128,14 +129,14 @@
                 
                 <!-- Map Controls -->
                 <div class="map-controls">
-                    <button id="mapStyleBtn" class="map-control-btn" title="Changer le style de carte">
+                    <button id="mapStyleBtn" class="map-control-btn" title="Changer le style">
                         <i class="fas fa-layer-group"></i>
                     </button>
                     <button id="fullscreenBtn" class="map-control-btn" title="Plein écran">
                         <i class="fas fa-expand"></i>
                     </button>
-                    <button id="recenterBtn" class="map-control-btn" title="Recentrer la carte">
-                        <i class="fas fa-crosshairs"></i>
+                    <button id="currentLocationBtn" class="map-control-btn" title="Ma position">
+                        <i class="fas fa-location-arrow"></i>
                     </button>
                 </div>
                 
@@ -157,10 +158,16 @@
                     </div>
                 </div>
 
-                <!-- GPS Status -->
-                <div id="gpsStatus" class="gps-status">
-                    <i class="fas fa-satellite"></i>
-                    <span>Recherche GPS...</span>
+                <!-- Navigation Quick Actions -->
+                <div class="quick-actions">
+                    <button id="quickNavigate" class="quick-action-btn">
+                        <i class="fas fa-route"></i>
+                        <span>Navigation rapide</span>
+                    </button>
+                    <button id="shareLocation" class="quick-action-btn">
+                        <i class="fas fa-share"></i>
+                        <span>Partager position</span>
+                    </button>
                 </div>
             </div>
         </main>
@@ -174,6 +181,20 @@
                 </div>
                 <div class="modal-body">
                     <div id="distributeurImages" class="image-gallery"></div>
+                    
+                    <div class="distributeur-rating">
+                        <div class="rating-display">
+                            <div class="stars">
+                                <i class="fas fa-star"></i>
+                                <i class="fas fa-star"></i>
+                                <i class="fas fa-star"></i>
+                                <i class="fas fa-star"></i>
+                                <i class="fas fa-star-half-alt"></i>
+                            </div>
+                            <span class="rating-text" id="ratingText">4.5/5 (12 avis)</span>
+                        </div>
+                    </div>
+
                     <div class="distributeur-info">
                         <div class="info-grid">
                             <div class="info-item">
@@ -188,44 +209,42 @@
                                 <i class="fas fa-city"></i>
                                 <span id="distributeurVille">Ville</span>
                             </div>
-                            <div class="info-item" id="distributeurPhoneItem" style="display: none;">
+                            <div class="info-item">
                                 <i class="fas fa-phone"></i>
                                 <span id="distributeurTelephone">Téléphone</span>
                             </div>
-                            <div class="info-item" id="distributeurPriceItem" style="display: none;">
-                                <i class="fas fa-tag"></i>
-                                <span id="distributeurPrix">Prix</span>
+                            <div class="info-item">
+                                <i class="fas fa-money-bill"></i>
+                                <span id="distributeurPrix">Prix moyen</span>
                             </div>
                         </div>
-                        <p id="distributeurDescription" class="description"></p>
-                        
-                        <!-- Section Avis -->
-                        <div class="avis-section">
-                            <div class="avis-header">
-                                <h4>Avis et notations</h4>
-                                <div class="overall-rating" id="overallRating">
-                                    <!-- Contenu généré dynamiquement -->
+                        <div class="description-section">
+                            <h4>Description</h4>
+                            <p id="distributeurDescription" class="description">Description du distributeur...</p>
+                        </div>
+                    </div>
+
+                    <!-- Section Avis -->
+                    <div class="avis-section">
+                        <h4>Avis et Commentaires</h4>
+                        <div id="avisList" class="avis-list">
+                            <!-- Avis chargés dynamiquement -->
+                        </div>
+                        <div class="add-review">
+                            <h5>Donner votre avis</h5>
+                            <div class="rating-input">
+                                <div class="stars" id="ratingStars">
+                                    <i class="far fa-star" data-rating="1"></i>
+                                    <i class="far fa-star" data-rating="2"></i>
+                                    <i class="far fa-star" data-rating="3"></i>
+                                    <i class="far fa-star" data-rating="4"></i>
+                                    <i class="far fa-star" data-rating="5"></i>
                                 </div>
-                            </div>
-                            <div class="add-review">
-                                <h5>Donner votre avis</h5>
-                                <div class="rating-input">
-                                    <div class="stars" id="ratingStars">
-                                        <i class="far fa-star" data-rating="1"></i>
-                                        <i class="far fa-star" data-rating="2"></i>
-                                        <i class="far fa-star" data-rating="3"></i>
-                                        <i class="far fa-star" data-rating="4"></i>
-                                        <i class="far fa-star" data-rating="5"></i>
-                                    </div>
-                                    <textarea id="avisComment" placeholder="Partagez votre expérience... (optionnel)"></textarea>
-                                    <button id="submitAvis" class="btn-primary">
-                                        <i class="fas fa-paper-plane"></i>
-                                        Publier l'avis
-                                    </button>
-                                </div>
-                            </div>
-                            <div id="avisList" class="avis-list">
-                                <!-- Liste des avis -->
+                                <textarea id="avisComment" placeholder="Partagez votre expérience..."></textarea>
+                                <button id="submitAvis" class="btn-primary">
+                                    <i class="fas fa-paper-plane"></i>
+                                    Publier l'avis
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -234,6 +253,10 @@
                     <button id="navigateBtn" class="btn-primary">
                         <i class="fas fa-route"></i>
                         Rejoindre ce distributeur
+                    </button>
+                    <button id="callBtn" class="btn-secondary">
+                        <i class="fas fa-phone"></i>
+                        Appeler
                     </button>
                     <button id="shareBtn" class="btn-secondary">
                         <i class="fas fa-share"></i>
@@ -252,6 +275,10 @@
             <div class="nav-content">
                 <div class="route-info">
                     <div class="route-item">
+                        <span>Destination:</span>
+                        <span id="routeDestination">--</span>
+                    </div>
+                    <div class="route-item">
                         <span>Distance:</span>
                         <span id="routeDistance">--</span>
                     </div>
@@ -263,15 +290,17 @@
                         <span>Vitesse moyenne:</span>
                         <span id="routeSpeed">-- km/h</span>
                     </div>
-                    <div class="route-item">
-                        <span>Distance restante:</span>
-                        <span id="remainingDistance">--</span>
+                </div>
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
                     </div>
+                    <div class="progress-text" id="progressText">0% parcouru</div>
                 </div>
                 <div class="navigation-steps" id="navigationSteps">
-                    <!-- Steps will be populated here -->
+                    <!-- Étapes de navigation -->
                 </div>
-                <div class="navigation-controls">
+                <div class="nav-actions">
                     <button id="stopNavigation" class="btn-danger">
                         <i class="fas fa-stop"></i>
                         Arrêter la navigation
@@ -310,17 +339,18 @@
                     Se connecter
                 </button>
             </form>
-            <div class="login-footer">
-                <p>Identifiants par défaut: <strong>admin</strong> / <strong>admin123</strong></p>
+            <div class="login-info">
+                <p><strong>Compte de test:</strong></p>
+                <p>Nom d'utilisateur: <code>admin</code></p>
+                <p>Mot de passe: <code>admin123</code></p>
             </div>
         </div>
     </div>
 
-    <!-- Notification Container -->
+    <!-- Notification System -->
     <div id="notificationContainer" class="notification-container"></div>
 
     <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script type="module" src="app.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>
