@@ -1,477 +1,166 @@
-// Configuration avec votre token Mapbox
-const CONFIG = {
-    MAPBOX_TOKEN: "pk.eyJ1IjoiY3RscG93ZXIiLCJhIjoiY21pMHpzanhzMTBnNDJpcHl5amp3Y3UxMSJ9.vBVUzayPx57ti_dbj0LuCw",
-    DEFAULT_CENTER: [11.5021, 3.8480], // [lng, lat] - Centre du Cameroun
-    DEFAULT_ZOOM: 6,
-    MAP_STYLES: [
-        'mapbox://styles/mapbox/streets-v12',
-        'mapbox://styles/mapbox/outdoors-v12',
-        'mapbox://styles/mapbox/light-v11',
-        'mapbox://styles/mapbox/dark-v11',
-        'mapbox://styles/mapbox/satellite-streets-v12'
-    ]
-};
-
-class MapManager {
-    constructor() {
-        this.map = null;
-        this.markers = [];
-        this.userMarker = null;
-        this.currentStyleIndex = 0;
-        this.isMapLoaded = false;
-    }
-
-    init(containerId) {
-        return new Promise((resolve, reject) => {
-            // Vérifier que Mapbox GL JS est chargé
-            if (typeof mapboxgl === 'undefined') {
-                reject(new Error('Mapbox GL JS non chargé'));
-                return;
-            }
-
-            // Vérifier le token
-            if (!CONFIG.MAPBOX_TOKEN || CONFIG.MAPBOX_TOKEN === 'votre_token_ici') {
-                this.showTokenError(containerId);
-                reject(new Error('Token Mapbox non configuré'));
-                return;
-            }
-
-            mapboxgl.accessToken = CONFIG.MAPBOX_TOKEN;
-
-            try {
-                this.map = new mapboxgl.Map({
-                    container: containerId,
-                    style: CONFIG.MAP_STYLES[this.currentStyleIndex],
-                    center: CONFIG.DEFAULT_CENTER,
-                    zoom: CONFIG.DEFAULT_ZOOM,
-                    attributionControl: true
-                });
-
-                // Contrôles de navigation
-                this.map.addControl(new mapboxgl.NavigationControl(), 'top-right');
-                this.map.addControl(new mapboxgl.ScaleControl(), 'bottom-left');
-
-                // Gestionnaire d'événements de chargement
-                this.map.on('load', () => {
-                    console.log('✅ Carte Mapbox chargée avec succès');
-                    this.isMapLoaded = true;
-                    
-                    // Rendre la carte visible
-                    const mapElement = document.getElementById(containerId);
-                    mapElement.style.opacity = '1';
-                    mapElement.style.visibility = 'visible';
-                    
-                    resolve(this.map);
-                });
-
-                // Gestionnaire d'erreurs
-                this.map.on('error', (e) => {
-                    console.error('❌ Erreur Mapbox:', e);
-                    this.showMapError(containerId, e.error);
-                    reject(e.error);
-                });
-
-                // Gestionnaire des ressources chargées
-                this.map.on('load', () => {
-                    console.log('🗺️ Toutes les ressources de la carte sont chargées');
-                });
-
-            } catch (error) {
-                console.error('❌ Erreur lors de la création de la carte:', error);
-                this.showMapError(containerId, error.message);
-                reject(error);
-            }
-        });
-    }
-
-    showTokenError(containerId) {
-        const mapElement = document.getElementById(containerId);
-        mapElement.innerHTML = `
-            <div class="map-error">
-                <div class="error-content">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    <h3>Token Mapbox Manquant</h3>
-                    <p>Le token Mapbox n'est pas configuré. Veuillez contacter l'administrateur.</p>
-                    <button onclick="location.reload()" class="btn-retry">
-                        <i class="fas fa-redo"></i> Réessayer
-                    </button>
-                </div>
-            </div>
-        `;
-    }
-
-    showMapError(containerId, errorMessage) {
-        const mapElement = document.getElementById(containerId);
-        mapElement.innerHTML = `
-            <div class="map-error">
-                <div class="error-content">
-                    <i class="fas fa-map-marked-alt"></i>
-                    <h3>Carte Non Disponible</h3>
-                    <p>Impossible de charger la carte. Erreur: ${errorMessage || 'Inconnue'}</p>
-                    <div class="error-actions">
-                        <button onclick="location.reload()" class="btn-retry">
-                            <i class="fas fa-redo"></i> Réessayer
-                        </button>
-                        <button onclick="window.app?.loadDistributeurs()" class="btn-continue">
-                            <i class="fas fa-play"></i> Continuer sans carte
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-    }
-
-    updateDistributeurs(distributeurs) {
-        if (!this.isMapLoaded) {
-            console.warn('Carte non chargée, impossible de mettre à jour les marqueurs');
-            return;
-        }
-
-        this.clearMarkers();
-        
-        distributeurs.forEach(distributeur => {
-            this.addDistributeurMarker(distributeur);
-        });
-
-        console.log(`📍 ${distributeurs.length} distributeurs affichés sur la carte`);
-    }
-
-    addDistributeurMarker(distributeur) {
-        try {
-            const el = document.createElement('div');
-            el.className = 'distributeur-marker';
-            el.innerHTML = this.getMarkerHTML(distributeur);
-            
-            el.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (window.app && typeof window.app.showDistributeurDetails === 'function') {
-                    window.app.showDistributeurDetails(distributeur);
-                }
-            });
-
-            const marker = new mapboxgl.Marker({
-                element: el,
-                anchor: 'bottom'
-            })
-            .setLngLat([distributeur.longitude, distributeur.latitude])
-            .addTo(this.map);
-
-            this.markers.push(marker);
-
-        } catch (error) {
-            console.error('Erreur création marqueur:', error);
-        }
-    }
-
-    getMarkerHTML(distributeur) {
-        const typeIcons = {
-            'nourriture': 'fa-utensils',
-            'boissons': 'fa-wine-bottle',
-            'billets': 'fa-ticket-alt',
-            'divers': 'fa-shopping-cart'
-        };
-
-        const typeColors = {
-            'nourriture': '#e74c3c',
-            'boissons': '#3498db',
-            'billets': '#9b59b6',
-            'divers': '#f39c12'
-        };
-
-        const icon = typeIcons[distributeur.type] || 'fa-map-marker-alt';
-        const color = typeColors[distributeur.type] || '#2c3e50';
-        
-        return `
-            <div class="marker-content" style="border-color: ${color}">
-                <div class="marker-icon" style="background: ${color}">
-                    <i class="fas ${icon}"></i>
-                </div>
-                ${distributeur.distance ? 
-                    `<div class="marker-distance">${distributeur.distance.toFixed(1)}km</div>` : 
-                    ''
-                }
-            </div>
-        `;
-    }
-
-    addUserMarker(lat, lng) {
-        if (!this.isMapLoaded) return;
-
-        this.clearUserMarker();
-
-        const el = document.createElement('div');
-        el.className = 'user-marker';
-        el.innerHTML = '<i class="fas fa-user"></i>';
-
-        this.userMarker = new mapboxgl.Marker({
-            element: el,
-            anchor: 'bottom'
-        })
-        .setLngLat([lng, lat])
-        .addTo(this.map);
-    }
-
-    clearUserMarker() {
-        if (this.userMarker) {
-            this.userMarker.remove();
-            this.userMarker = null;
-        }
-    }
-
-    clearMarkers() {
-        this.markers.forEach(marker => {
-            try {
-                marker.remove();
-            } catch (error) {
-                console.warn('Erreur suppression marqueur:', error);
-            }
-        });
-        this.markers = [];
-    }
-
-    flyTo(lat, lng, zoom = 15) {
-        if (!this.isMapLoaded) return;
-
-        this.map.flyTo({
-            center: [lng, lat],
-            zoom: zoom,
-            duration: 2000,
-            essential: true
-        });
-    }
-
-    setStyle(styleIndex) {
-        if (!this.isMapLoaded) return;
-
-        this.currentStyleIndex = styleIndex % CONFIG.MAP_STYLES.length;
-        this.map.setStyle(CONFIG.MAP_STYLES[this.currentStyleIndex]);
-        
-        // Réappliquer les marqueurs après changement de style
-        this.map.once('styledata', () => {
-            setTimeout(() => {
-                if (window.app && window.app.currentDistributeurs) {
-                    this.updateDistributeurs(window.app.currentDistributeurs);
-                }
-            }, 500);
-        });
-    }
-
-    getCurrentStyleIndex() {
-        return this.currentStyleIndex;
-    }
-
-    getMapStyles() {
-        return CONFIG.MAP_STYLES;
-    }
-}
-
-class API {
-    constructor() {
-        this.baseURL = window.location.origin;
-    }
-
-    async request(endpoint, options = {}) {
-        try {
-            const url = `${this.baseURL}${endpoint}`;
-            const response = await fetch(url, {
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...options.headers
-                },
-                ...options
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            return await response.json();
-        } catch (error) {
-            console.error(`API request failed for ${endpoint}:`, error);
-            throw error;
-        }
-    }
-
-    async getDistributeurs(filters = {}) {
-        const params = new URLSearchParams();
-        
-        Object.entries(filters).forEach(([key, value]) => {
-            if (value !== undefined && value !== null && value !== '') {
-                params.append(key, value);
-            }
-        });
-
-        const endpoint = `/api/distributeurs${params.toString() ? `?${params}` : ''}`;
-        return await this.request(endpoint);
-    }
-
-    async getDistributeur(id) {
-        return await this.request(`/api/distributeurs/${id}`);
-    }
-
-    async getConfig() {
-        return await this.request('/api/config');
-    }
-
-    async healthCheck() {
-        return await this.request('/api/health');
-    }
-}
+import MapManager from './map-manager.js';
+import API from './api.js';
+import AuthManager from './auth.js';
 
 class CTLLoketApp {
     constructor() {
         this.mapManager = new MapManager();
         this.api = new API();
+        this.authManager = new AuthManager();
         this.currentDistributeurs = [];
         this.userPosition = null;
+        this.navigationActive = false;
         this.selectedDistributeur = null;
-        this.isInitialized = false;
+        this.currentRating = 0;
+        this.isLoading = false;
         
         this.init();
     }
 
     async init() {
         try {
-            console.log('🚀 Initialisation de CTL-LOKET...');
-            
-            // Vérifier la santé de l'API
-            await this.api.healthCheck();
-            console.log('✅ API santé vérifiée');
-
-            // Initialiser les événements
+            await this.initMap();
             this.bindEvents();
-            console.log('✅ Événements liés');
-
-            // Initialiser la carte
-            await this.mapManager.init('map');
-            console.log('✅ Carte initialisée');
-
-            // Charger les distributeurs
-            await this.loadDistributeurs();
-            console.log('✅ Distributeurs chargés');
-
-            // Configurer le thème
             this.setupTheme();
-            console.log('✅ Thème configuré');
-
-            this.isInitialized = true;
-            console.log('🎉 Application CTL-LOKET initialisée avec succès');
-
-            // Afficher un message de bienvenue
-            this.showNotification('CTL-LOKET est prêt !', 'success');
-
+            this.checkGeolocationPermission();
+            this.showNotification('CTL-LOKET prêt à vous servir !', 'info');
+            
+            // Charger les distributeurs initiaux
+            await this.loadDistributeurs();
+            
         } catch (error) {
-            console.error('❌ Erreur lors de l\'initialisation:', error);
-            this.showError('Erreur lors du démarrage de l\'application');
+            console.error('Erreur initialisation:', error);
+            this.showNotification('Erreur lors du chargement de l\'application', 'error');
+        }
+    }
+
+    async initMap() {
+        try {
+            await this.mapManager.init('map');
+            this.mapManager.onMarkerClick(this.handleMarkerClick.bind(this));
+            this.mapManager.onMapClick(this.handleMapClick.bind(this));
+            console.log('✅ Carte initialisée avec succès');
+        } catch (error) {
+            console.error('❌ Erreur initialisation carte:', error);
+            this.showNotification('Erreur de chargement de la carte', 'error');
         }
     }
 
     bindEvents() {
-        // Navigation
+        // Navigation entre les vues
         document.querySelectorAll('.nav-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.preventDefault();
-                document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-                e.currentTarget.classList.add('active');
                 this.switchView(e.currentTarget.dataset.view);
             });
         });
 
-        // Recherche
+        // Recherche en temps réel
         const searchInput = document.getElementById('searchInput');
+        const clearSearch = document.getElementById('clearSearch');
+        
         if (searchInput) {
-            searchInput.addEventListener('input', (e) => {
-                this.debounce(() => this.handleSearch(e.target.value), 300)();
+            searchInput.addEventListener('input', this.debounce(this.handleSearch.bind(this), 300));
+        }
+        
+        if (clearSearch) {
+            clearSearch.addEventListener('click', () => {
+                searchInput.value = '';
+                this.loadDistributeurs();
             });
         }
 
         // Filtres
-        const typeFilter = document.getElementById('typeFilter');
-        const villeFilter = document.getElementById('villeFilter');
-        
-        if (typeFilter) typeFilter.addEventListener('change', () => this.handleFilter());
-        if (villeFilter) villeFilter.addEventListener('change', () => this.handleFilter());
+        document.getElementById('typeFilter')?.addEventListener('change', this.handleFilter.bind(this));
+        document.getElementById('villeFilter')?.addEventListener('change', this.handleFilter.bind(this));
+        document.getElementById('radiusFilter')?.addEventListener('change', this.handleFilter.bind(this));
+        document.getElementById('sortFilter')?.addEventListener('change', this.handleFilter.bind(this));
 
-        // Localisation
-        const locateBtn = document.getElementById('locateBtn');
-        if (locateBtn) locateBtn.addEventListener('click', () => this.locateUser());
+        // Localisation utilisateur
+        document.getElementById('locateBtn')?.addEventListener('click', this.locateUser.bind(this));
 
         // Thème
-        const themeToggle = document.getElementById('themeToggle');
-        if (themeToggle) themeToggle.addEventListener('click', () => this.toggleTheme());
+        document.getElementById('themeToggle')?.addEventListener('click', this.toggleTheme.bind(this));
 
-        // Admin
-        const adminAccess = document.getElementById('adminAccess');
-        if (adminAccess) adminAccess.addEventListener('click', () => this.showAdminLogin());
+        // Accès admin
+        document.getElementById('adminAccess')?.addEventListener('click', this.showAdminLogin.bind(this));
+
+        // Menu mobile
+        document.getElementById('mobileMenuToggle')?.addEventListener('click', this.toggleMobileMenu.bind(this));
 
         // Modal distributeur
-        const closeButtons = document.querySelectorAll('.close-btn');
-        closeButtons.forEach(btn => {
-            btn.addEventListener('click', () => this.hideModal());
-        });
-
-        const closeNav = document.getElementById('closeNav');
-        if (closeNav) closeNav.addEventListener('click', () => this.hideNavigation());
+        document.querySelector('#distributeurModal .close-btn')?.addEventListener('click', () => this.hideModal('distributeurModal'));
+        document.getElementById('closeNav')?.addEventListener('click', this.hideNavigation.bind(this));
 
         // Navigation vers distributeur
-        const navigateBtn = document.getElementById('navigateBtn');
-        if (navigateBtn) navigateBtn.addEventListener('click', () => this.startNavigation());
+        document.getElementById('navigateBtn')?.addEventListener('click', this.startNavigation.bind(this));
+        document.getElementById('stopNavigation')?.addEventListener('click', this.hideNavigation.bind(this));
+        document.getElementById('shareBtn')?.addEventListener('click', this.shareDistributeur.bind(this));
 
-        // Admin Login
-        const adminLoginForm = document.getElementById('adminLoginForm');
-        if (adminLoginForm) {
-            adminLoginForm.addEventListener('submit', (e) => {
-                e.preventDefault();
-                this.handleAdminLogin();
-            });
-        }
+        // Recentrage carte
+        document.getElementById('recenterBtn')?.addEventListener('click', this.recenterMap.bind(this));
 
-        // Map Controls
-        const mapStyleBtn = document.getElementById('mapStyleBtn');
-        if (mapStyleBtn) mapStyleBtn.addEventListener('click', () => this.cycleMapStyle());
+        // Connexion admin
+        document.getElementById('adminLoginForm')?.addEventListener('submit', this.handleAdminLogin.bind(this));
 
-        const fullscreenBtn = document.getElementById('fullscreenBtn');
-        if (fullscreenBtn) fullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
+        // Contrôles carte
+        document.getElementById('mapStyleBtn')?.addEventListener('click', this.cycleMapStyle.bind(this));
+        document.getElementById('fullscreenBtn')?.addEventListener('click', this.toggleFullscreen.bind(this));
 
-        // Fermer modals en cliquant à l'extérieur
+        // Fermer les modals
         document.addEventListener('click', (e) => {
             if (e.target.classList.contains('modal')) {
                 this.hideModal();
+                this.hideAdminLogin();
             }
         });
 
-        // Gestionnaire d'erreurs global
-        window.addEventListener('error', (e) => {
-            console.error('Erreur globale:', e.error);
+        // Gestion du clavier
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                this.hideModal();
+                this.hideNavigation();
+                this.hideMobileMenu();
+            }
         });
 
-        console.log('✅ Tous les événements sont liés');
+        // Gestion de la visibilité
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && this.navigationActive) {
+                this.updateNavigationProgress();
+            }
+        });
+
+        console.log('✅ Événements liés avec succès');
     }
 
     async loadDistributeurs(filters = {}) {
-        try {
-            this.showLoading('Chargement des distributeurs...');
-            
-            const response = await this.api.getDistributeurs(filters);
+        if (this.isLoading) return;
+        
+        this.isLoading = true;
+        this.showLoading();
 
+        try {
+            const response = await this.api.getDistributeurs(filters);
+            
             if (response.success) {
                 this.currentDistributeurs = response.data;
                 this.mapManager.updateDistributeurs(this.currentDistributeurs);
                 this.updateResultsList(this.currentDistributeurs);
-                this.hideLoading();
-
-                if (this.currentDistributeurs.length === 0) {
-                    this.showNotification('Aucun distributeur trouvé', 'info');
-                } else {
-                    this.showNotification(`${this.currentDistributeurs.length} distributeurs chargés`, 'success');
-                }
+                this.updateResultsCount(this.currentDistributeurs.length);
+                
+                // Mettre à jour le compteur de distributeurs trouvés
+                document.getElementById('foundCount').textContent = this.currentDistributeurs.length;
+                
             } else {
-                throw new Error(response.error || 'Erreur inconnue');
+                throw new Error(response.error);
             }
         } catch (error) {
             console.error('Erreur chargement distributeurs:', error);
-            this.showError('Erreur lors du chargement des distributeurs');
+            this.showNotification('Erreur lors du chargement des distributeurs', 'error');
+        } finally {
             this.hideLoading();
+            this.isLoading = false;
         }
     }
 
@@ -486,9 +175,7 @@ class CTLLoketApp {
                 <div class="no-results">
                     <i class="fas fa-search"></i>
                     <p>Aucun distributeur trouvé</p>
-                    <button onclick="window.app.loadDistributeurs()" class="btn-retry">
-                        Afficher tous les distributeurs
-                    </button>
+                    <p class="subtext">Essayez de modifier vos critères de recherche</p>
                 </div>
             `;
             return;
@@ -506,13 +193,16 @@ class CTLLoketApp {
         card.innerHTML = `
             <div class="card-header">
                 <div>
-                    <h4>${distributeur.nom}</h4>
+                    <h4>${this.escapeHtml(distributeur.nom)}</h4>
                     <div class="card-info">
                         <span class="type">${this.getTypeLabel(distributeur.type)}</span>
-                        <span class="address">${distributeur.adresse}</span>
-                        <div class="card-services">
-                            <small>${distributeur.services?.slice(0, 2).join(', ') || ''}</small>
-                        </div>
+                        <span class="address">${this.escapeHtml(distributeur.adresse)}</span>
+                        ${distributeur.note_moyenne > 0 ? `
+                            <div class="rating">
+                                ${this.generateStarRating(distributeur.note_moyenne)}
+                                <span class="rating-text">(${distributeur.nombre_avis})</span>
+                            </div>
+                        ` : ''}
                     </div>
                 </div>
                 ${distributeur.distance ? 
@@ -529,160 +219,342 @@ class CTLLoketApp {
         return card;
     }
 
-    showDistributeurDetails(distributeur) {
+    generateStarRating(rating) {
+        const fullStars = Math.floor(rating);
+        const hasHalfStar = rating % 1 >= 0.5;
+        const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
+        
+        let stars = '';
+        
+        // Étoiles pleines
+        for (let i = 0; i < fullStars; i++) {
+            stars += '<i class="fas fa-star"></i>';
+        }
+        
+        // Demi-étoile
+        if (hasHalfStar) {
+            stars += '<i class="fas fa-star-half-alt"></i>';
+        }
+        
+        // Étoiles vides
+        for (let i = 0; i < emptyStars; i++) {
+            stars += '<i class="far fa-star"></i>';
+        }
+        
+        return stars;
+    }
+
+    async handleMarkerClick(distributeur) {
+        try {
+            const details = await this.loadDistributeurDetails(distributeur.id);
+            this.showDistributeurDetails(details || distributeur);
+        } catch (error) {
+            console.error('Erreur chargement détails:', error);
+            this.showDistributeurDetails(distributeur);
+        }
+    }
+
+    handleMapClick() {
+        // Réinitialiser la sélection
+        this.selectedDistributeur = null;
+        document.querySelectorAll('.distributeur-card').forEach(card => {
+            card.classList.remove('active');
+        });
+    }
+
+    async loadDistributeurDetails(id) {
+        try {
+            const response = await this.api.getDistributeur(id);
+            if (response.success) {
+                return response.data;
+            }
+        } catch (error) {
+            console.error('Erreur chargement détails:', error);
+            throw error;
+        }
+        return null;
+    }
+
+    async showDistributeurDetails(distributeur) {
         this.selectedDistributeur = distributeur;
         
         // Mettre à jour les informations de base
-        document.getElementById('distributeurName').textContent = distributeur.nom;
+        document.getElementById('distributeurName').textContent = this.escapeHtml(distributeur.nom);
         document.getElementById('distributeurType').textContent = this.getTypeLabel(distributeur.type);
-        document.getElementById('distributeurAddress').textContent = distributeur.adresse;
-        document.getElementById('distributeurVille').textContent = distributeur.ville;
+        document.getElementById('distributeurAddress').textContent = this.escapeHtml(distributeur.adresse);
+        document.getElementById('distributeurVille').textContent = this.escapeHtml(distributeur.ville);
         document.getElementById('distributeurDescription').textContent = 
-            distributeur.description || 'Aucune description disponible';
+            this.escapeHtml(distributeur.description || 'Aucune description disponible');
 
-        // Informations supplémentaires
-        const infoGrid = document.querySelector('.distributeur-info .info-grid');
-        if (infoGrid) {
-            infoGrid.innerHTML = `
-                <div class="info-item">
-                    <i class="fas fa-tag"></i>
-                    <span>${this.getTypeLabel(distributeur.type)}</span>
-                </div>
-                <div class="info-item">
-                    <i class="fas fa-map-marker-alt"></i>
-                    <span>${distributeur.adresse}</span>
-                </div>
-                <div class="info-item">
-                    <i class="fas fa-city"></i>
-                    <span>${distributeur.ville}</span>
-                </div>
-                ${distributeur.telephone ? `
-                    <div class="info-item">
-                        <i class="fas fa-phone"></i>
-                        <span>${distributeur.telephone}</span>
-                    </div>
-                ` : ''}
-                ${distributeur.horaires ? `
-                    <div class="info-item">
-                        <i class="fas fa-clock"></i>
-                        <span>${distributeur.horaires}</span>
-                    </div>
-                ` : ''}
-                ${distributeur.prix_moyen ? `
-                    <div class="info-item">
-                        <i class="fas fa-tags"></i>
-                        <span>${distributeur.prix_moyen}</span>
-                    </div>
-                ` : ''}
-            `;
+        // Afficher/Masquer les informations optionnelles
+        const phoneItem = document.getElementById('distributeurPhoneItem');
+        const priceItem = document.getElementById('distributeurPriceItem');
+        const phoneElement = document.getElementById('distributeurTelephone');
+        const priceElement = document.getElementById('distributeurPrix');
+
+        if (distributeur.telephone) {
+            phoneElement.textContent = distributeur.telephone;
+            phoneItem.style.display = 'flex';
+        } else {
+            phoneItem.style.display = 'none';
         }
 
-        // Services
-        if (distributeur.services && distributeur.services.length > 0) {
-            const servicesSection = document.createElement('div');
-            servicesSection.className = 'services-section';
-            servicesSection.innerHTML = `
-                <h4>Services proposés:</h4>
-                <div class="services-list">
-                    ${distributeur.services.map(service => `
-                        <span class="service-tag">${service}</span>
-                    `).join('')}
-                </div>
-            `;
-            const modalBody = document.querySelector('.modal-body');
-            const existingServices = modalBody.querySelector('.services-section');
-            if (existingServices) existingServices.remove();
-            modalBody.appendChild(servicesSection);
+        if (distributeur.prix_moyen) {
+            priceElement.textContent = distributeur.prix_moyen;
+            priceItem.style.display = 'flex';
+        } else {
+            priceItem.style.display = 'none';
         }
+
+        // Gestion des images
+        this.updateImageGallery(distributeur);
+
+        // Section avis
+        this.updateAvisSection(distributeur);
 
         this.showModal('distributeurModal');
+        
+        // Mettre en évidence la carte correspondante
+        document.querySelectorAll('.distributeur-card').forEach(card => {
+            card.classList.remove('active');
+        });
+        
+        // Animation de sélection sur la carte
+        this.mapManager.highlightDistributeur(distributeur.id);
+    }
+
+    updateImageGallery(distributeur) {
+        const gallery = document.getElementById('distributeurImages');
+        gallery.innerHTML = '';
+        
+        if (distributeur.images && distributeur.images.length > 0) {
+            distributeur.images.forEach((img, index) => {
+                const imgContainer = document.createElement('div');
+                imgContainer.className = `image-item ${img.is_primary ? 'primary' : ''}`;
+                imgContainer.innerHTML = `
+                    <img src="${img.url}" alt="${distributeur.nom}" loading="lazy" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9Ijc1IiB2aWV3Qm94PSIwIDAgMTAwIDc1IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxMDAiIGhlaWdodD0iNzUiIGZpbGw9IiMzMzMzMzMiLz48dGV4dCB4PSI1MCIgeT0iMzcuNSIgZG9taW5hbnQtYmFzZWxpbmU9Im1pZGRsZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0iIzk5OTk5OSIgZm9udC1mYW1pbHk9IkFyaWFsLCBzYW5zLXNlcmlmIiBmb250LXNpemU9IjEyIj5JbWFnZTwvdGV4dD48L3N2Zz4='">
+                    ${img.is_primary ? '<span class="primary-badge">Principale</span>' : ''}
+                `;
+                gallery.appendChild(imgContainer);
+            });
+        } else {
+            gallery.innerHTML = `
+                <div class="no-image">
+                    <i class="fas fa-image"></i>
+                    <p>Aucune image disponible</p>
+                </div>
+            `;
+        }
+    }
+
+    updateAvisSection(distributeur) {
+        const avisSection = document.getElementById('avisSection');
+        if (!avisSection) return;
+
+        // En-tête des avis
+        const overallRating = document.getElementById('overallRating');
+        if (overallRating) {
+            if (distributeur.note_moyenne > 0) {
+                overallRating.innerHTML = `
+                    <div class="rating-big">${distributeur.note_moyenne.toFixed(1)}</div>
+                    <div class="rating-stars">${this.generateStarRating(distributeur.note_moyenne)}</div>
+                    <div class="rating-count">${distributeur.nombre_avis} avis</div>
+                `;
+            } else {
+                overallRating.innerHTML = '<p>Soyez le premier à noter ce distributeur</p>';
+            }
+        }
+
+        // Réinitialiser la notation
+        this.currentRating = 0;
+        this.updateRatingStars(0);
+
+        // Gestion de la notation
+        const stars = avisSection.querySelectorAll('.stars i');
+        stars.forEach(star => {
+            star.addEventListener('mouseover', (e) => {
+                const rating = parseInt(e.target.dataset.rating);
+                this.updateRatingStars(rating);
+            });
+
+            star.addEventListener('mouseout', () => {
+                this.updateRatingStars(this.currentRating);
+            });
+
+            star.addEventListener('click', (e) => {
+                this.currentRating = parseInt(e.target.dataset.rating);
+                this.updateRatingStars(this.currentRating);
+            });
+        });
+
+        // Liste des avis existants
+        this.updateAvisList(distributeur.avis || []);
+    }
+
+    updateRatingStars(rating) {
+        const stars = document.querySelectorAll('#ratingStars i');
+        stars.forEach((star, index) => {
+            if (index < rating) {
+                star.className = 'fas fa-star';
+            } else {
+                star.className = 'far fa-star';
+            }
+        });
+    }
+
+    updateAvisList(avis) {
+        const avisList = document.getElementById('avisList');
+        if (!avisList) return;
+
+        if (avis.length === 0) {
+            avisList.innerHTML = '<p class="no-avis">Aucun avis pour le moment</p>';
+            return;
+        }
+
+        avisList.innerHTML = avis.map(avisItem => `
+            <div class="avis-item">
+                <div class="avis-header-small">
+                    <div class="avis-rating">
+                        ${this.generateStarRating(avisItem.note)}
+                    </div>
+                    <div class="avis-date">
+                        ${new Date(avisItem.created_at).toLocaleDateString('fr-FR')}
+                    </div>
+                </div>
+                ${avisItem.commentaire ? `
+                    <div class="avis-comment">${this.escapeHtml(avisItem.commentaire)}</div>
+                ` : ''}
+            </div>
+        `).join('');
+    }
+
+    async submitAvis() {
+        if (!this.selectedDistributeur || this.currentRating === 0) {
+            this.showNotification('Veuillez sélectionner une note', 'warning');
+            return;
+        }
+
+        const comment = document.getElementById('avisComment').value;
+
+        try {
+            await this.api.createAvis({
+                distributeur_id: this.selectedDistributeur.id,
+                note: this.currentRating,
+                commentaire: comment
+            });
+
+            this.showNotification('Votre avis a été publié avec succès', 'success');
+            
+            // Recharger les détails du distributeur
+            const updatedDetails = await this.loadDistributeurDetails(this.selectedDistributeur.id);
+            if (updatedDetails) {
+                this.showDistributeurDetails(updatedDetails);
+            }
+            
+        } catch (error) {
+            console.error('Erreur publication avis:', error);
+            this.showNotification('Erreur lors de la publication de l\'avis', 'error');
+        }
     }
 
     async locateUser() {
+        const btn = document.getElementById('locateBtn');
+        if (!btn) return;
+
+        btn.classList.add('loading');
+        this.updateGPSStatus('Recherche GPS...');
+
         try {
-            const btn = document.getElementById('locateBtn');
-            if (!btn) return;
-
-            const originalText = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Localisation...';
-            btn.disabled = true;
-            
-            const position = await new Promise((resolve, reject) => {
-                if (!navigator.geolocation) {
-                    reject(new Error('Géolocalisation non supportée'));
-                    return;
-                }
-
-                navigator.geolocation.getCurrentPosition(resolve, reject, {
-                    enableHighAccuracy: true,
-                    timeout: 15000,
-                    maximumAge: 60000
-                });
-            });
-
+            const position = await this.getCurrentPosition();
             this.userPosition = position;
-            const coords = position.coords;
             
-            // Centrer la carte sur la position utilisateur
-            this.mapManager.flyTo(coords.latitude, coords.longitude, 15);
-            this.mapManager.addUserMarker(coords.latitude, coords.longitude);
+            const userCoords = {
+                lat: position.coords.latitude,
+                lng: position.coords.longitude
+            };
+
+            this.mapManager.flyTo(userCoords.lat, userCoords.lng, 16);
+            this.mapManager.addUserMarker(userCoords.lat, userCoords.lng);
+            
+            // Mettre à jour le statut GPS
+            this.updateGPSStatus('GPS connecté', 'connected');
             
             // Charger les distributeurs proches
             await this.loadDistributeurs({
-                lat: coords.latitude,
-                lng: coords.longitude,
-                radius: 5
+                lat: userCoords.lat,
+                lng: userCoords.lng,
+                radius: document.getElementById('radiusFilter')?.value || 10
             });
-
-            this.showSuccess('Position localisée avec succès');
-
-            btn.innerHTML = originalText;
-            btn.disabled = false;
-
+            
+            this.showNotification('Position localisée avec succès', 'success');
+            
         } catch (error) {
             console.error('Erreur géolocalisation:', error);
+            this.updateGPSStatus('GPS non disponible', 'error');
             
             let errorMessage = 'Impossible d\'accéder à votre position';
             if (error.code === error.PERMISSION_DENIED) {
                 errorMessage = 'Permission de géolocalisation refusée';
             } else if (error.code === error.TIMEOUT) {
-                errorMessage = 'Timeout de la géolocalisation';
+                errorMessage = 'Délai de localisation dépassé';
             }
             
-            this.showError(errorMessage);
-            
-            const btn = document.getElementById('locateBtn');
-            if (btn) {
-                btn.innerHTML = '<i class="fas fa-location-arrow"></i> Me localiser';
-                btn.disabled = false;
-            }
+            this.showNotification(errorMessage, 'error');
+        } finally {
+            btn.classList.remove('loading');
         }
     }
 
-    startNavigation() {
-        if (!this.userPosition) {
-            this.showError('Veuillez d\'abord activer votre localisation');
+    getCurrentPosition() {
+        return new Promise((resolve, reject) => {
+            if (!navigator.geolocation) {
+                reject(new Error('Géolocalisation non supportée'));
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(resolve, reject, {
+                enableHighAccuracy: true,
+                timeout: 15000,
+                maximumAge: 60000
+            });
+        });
+    }
+
+    updateGPSStatus(message, status = '') {
+        const gpsStatus = document.getElementById('gpsStatus');
+        if (!gpsStatus) return;
+
+        gpsStatus.innerHTML = `<i class="fas fa-satellite"></i><span>${message}</span>`;
+        gpsStatus.className = `gps-status ${status}`;
+    }
+
+    async startNavigation() {
+        if (!this.userPosition || !this.selectedDistributeur) {
+            this.showNotification('Localisez-vous d\'abord pour démarrer la navigation', 'warning');
             return;
         }
 
-        if (!this.selectedDistributeur) {
-            this.showError('Veuillez d\'abord sélectionner un distributeur');
-            return;
-        }
-
+        this.navigationActive = true;
         this.showNavigationPanel();
         
         const start = {
             lat: this.userPosition.coords.latitude,
             lng: this.userPosition.coords.longitude
         };
+        
         const end = {
             lat: this.selectedDistributeur.latitude,
             lng: this.selectedDistributeur.longitude
         };
 
-        this.updateNavigationInfo(start, end);
-        this.showSuccess(`Navigation vers ${this.selectedDistributeur.nom}`);
+        try {
+            await this.mapManager.startNavigation(start, end);
+            this.updateNavigationInfo(start, end);
+            this.showNotification('Navigation démarrée', 'success');
+        } catch (error) {
+            console.error('Erreur navigation:', error);
+            this.showNotification('Erreur lors du démarrage de la navigation', 'error');
+        }
     }
 
     updateNavigationInfo(start, end) {
@@ -692,7 +564,9 @@ class CTLLoketApp {
         document.getElementById('routeDistance').textContent = `${distance.toFixed(1)} km`;
         document.getElementById('routeTime').textContent = time;
         document.getElementById('routeSpeed').textContent = '40 km/h';
+        document.getElementById('remainingDistance').textContent = `${distance.toFixed(1)} km`;
 
+        // Générer les étapes de navigation
         this.generateNavigationSteps(start, end, distance);
     }
 
@@ -701,15 +575,35 @@ class CTLLoketApp {
         if (!stepsContainer) return;
 
         const steps = [
-            { instruction: 'Départ de votre position actuelle', distance: '0 km', icon: 'fa-play' },
-            { instruction: 'Continuer tout droit sur 200m', distance: '0.2 km', icon: 'fa-arrow-up' },
-            { instruction: 'Tourner à droite au carrefour', distance: '0.8 km', icon: 'fa-arrow-right' },
-            { instruction: 'Continuer sur 500m', distance: '1.3 km', icon: 'fa-arrow-up' },
-            { instruction: `Destination: ${this.selectedDistributeur.nom}`, distance: `${distance.toFixed(1)} km`, icon: 'fa-flag-checkered' }
+            { 
+                instruction: 'Départ de votre position actuelle', 
+                distance: '0 km',
+                icon: 'fa-play'
+            },
+            { 
+                instruction: 'Continuer tout droit sur 200m', 
+                distance: '0.2 km',
+                icon: 'fa-arrow-up'
+            },
+            { 
+                instruction: 'Tourner à droite au carrefour', 
+                distance: '0.8 km',
+                icon: 'fa-arrow-right'
+            },
+            { 
+                instruction: 'Prendre la deuxième sortie au rond-point', 
+                distance: '1.5 km',
+                icon: 'fa-redo'
+            },
+            { 
+                instruction: `Destination: ${this.selectedDistributeur.nom}`, 
+                distance: `${distance.toFixed(1)} km`,
+                icon: 'fa-flag-checkered'
+            }
         ];
 
         stepsContainer.innerHTML = steps.map((step, index) => `
-            <div class="step-item ${index === steps.length - 1 ? 'arrival' : ''}">
+            <div class="step-item ${index === steps.length - 1 ? 'arrival' : ''} ${index === 0 ? 'current' : ''}">
                 <div class="step-icon">
                     <i class="fas ${step.icon}"></i>
                 </div>
@@ -719,6 +613,31 @@ class CTLLoketApp {
                 </div>
             </div>
         `).join('');
+    }
+
+    updateNavigationProgress() {
+        if (!this.navigationActive) return;
+        
+        // Simulation de la progression (dans une vraie app, utiliser les données GPS réelles)
+        const remainingElement = document.getElementById('remainingDistance');
+        if (remainingElement) {
+            const currentDistance = parseFloat(remainingElement.textContent);
+            if (currentDistance > 0.1) {
+                const newDistance = Math.max(0, currentDistance - 0.1);
+                remainingElement.textContent = `${newDistance.toFixed(1)} km`;
+                
+                // Mettre à jour l'étape courante
+                const steps = document.querySelectorAll('.step-item');
+                steps.forEach(step => step.classList.remove('current'));
+                
+                if (newDistance > 0) {
+                    const currentStepIndex = Math.floor((1 - newDistance / parseFloat(document.getElementById('routeDistance').textContent)) * (steps.length - 1));
+                    if (steps[currentStepIndex]) {
+                        steps[currentStepIndex].classList.add('current');
+                    }
+                }
+            }
+        }
     }
 
     calculateDistance(lat1, lng1, lat2, lng2) {
@@ -736,33 +655,33 @@ class CTLLoketApp {
     calculateTime(distance) {
         const vitesseMoyenne = 40;
         const minutes = Math.round((distance / vitesseMoyenne) * 60);
-        if (minutes < 60) {
-            return `${minutes} min`;
-        } else {
-            const heures = Math.floor(minutes / 60);
-            const mins = minutes % 60;
-            return `${heures}h${mins > 0 ? mins + 'min' : ''}`;
-        }
+        return `${minutes} min`;
     }
 
+    // Gestion des vues
     switchView(view) {
-        console.log('Changement de vue:', view);
-        // Implémentation des différentes vues
+        // Mettre à jour la navigation
+        document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelector(`[data-view="${view}"]`).classList.add('active');
+        
+        // Appliquer la vue
         switch(view) {
             case 'map':
-                // Vue carte par défaut
+                this.mapManager.showMapView();
                 break;
             case 'list':
-                // Vue liste
+                this.mapManager.showListView();
                 break;
             case 'radar':
-                this.showNotification('Vue radar bientôt disponible', 'info');
+                this.mapManager.showRadarView();
                 break;
         }
     }
 
-    handleSearch(query) {
-        if (!query || query.trim() === '') {
+    // Recherche et filtres
+    handleSearch(e) {
+        const query = e.target.value.trim();
+        if (query.length === 0) {
             this.loadDistributeurs();
             return;
         }
@@ -773,14 +692,24 @@ class CTLLoketApp {
     handleFilter() {
         const type = document.getElementById('typeFilter')?.value || 'all';
         const ville = document.getElementById('villeFilter')?.value || 'all';
+        const radius = document.getElementById('radiusFilter')?.value || '10';
+        const sort = document.getElementById('sortFilter')?.value || 'distance';
         
         const filters = {};
         if (type !== 'all') filters.type = type;
         if (ville !== 'all') filters.ville = ville;
+        filters.radius = radius;
+        
+        // Si l'utilisateur est localisé, utiliser sa position
+        if (this.userPosition) {
+            filters.lat = this.userPosition.coords.latitude;
+            filters.lng = this.userPosition.coords.longitude;
+        }
         
         this.loadDistributeurs(filters);
     }
 
+    // Gestion du thème
     setupTheme() {
         const savedTheme = localStorage.getItem('ctl-loket-theme') || 'dark';
         document.documentElement.setAttribute('data-theme', savedTheme);
@@ -795,7 +724,7 @@ class CTLLoketApp {
         localStorage.setItem('ctl-loket-theme', newTheme);
         this.updateThemeIcon(newTheme);
         
-        this.showNotification(`Thème ${newTheme === 'dark' ? 'sombre' : 'clair'} activé`);
+        this.showNotification(`Thème ${newTheme === 'dark' ? 'sombre' : 'clair'} activé`, 'info');
     }
 
     updateThemeIcon(theme) {
@@ -805,6 +734,53 @@ class CTLLoketApp {
         }
     }
 
+    // Vérification des permissions de géolocalisation
+    async checkGeolocationPermission() {
+        if (!navigator.permissions) return;
+
+        try {
+            const result = await navigator.permissions.query({ name: 'geolocation' });
+            this.updatePermissionState(result.state);
+            
+            result.onchange = () => {
+                this.updatePermissionState(result.state);
+            };
+        } catch (error) {
+            console.log('API Permissions non supportée');
+        }
+    }
+
+    updatePermissionState(state) {
+        if (state === 'granted') {
+            this.updateGPSStatus('GPS prêt', 'connected');
+        } else if (state === 'denied') {
+            this.updateGPSStatus('GPS bloqué', 'error');
+        }
+    }
+
+    // Menu mobile
+    toggleMobileMenu() {
+        const sidebar = document.getElementById('sidebar');
+        const toggleBtn = document.getElementById('mobileMenuToggle');
+        
+        if (sidebar) {
+            sidebar.classList.toggle('active');
+            toggleBtn.innerHTML = sidebar.classList.contains('active') ? 
+                '<i class="fas fa-times"></i>' : '<i class="fas fa-bars"></i>';
+        }
+    }
+
+    hideMobileMenu() {
+        const sidebar = document.getElementById('sidebar');
+        const toggleBtn = document.getElementById('mobileMenuToggle');
+        
+        if (sidebar) {
+            sidebar.classList.remove('active');
+            toggleBtn.innerHTML = '<i class="fas fa-bars"></i>';
+        }
+    }
+
+    // Admin
     showAdminLogin() {
         this.showModal('adminLoginModal');
     }
@@ -813,27 +789,65 @@ class CTLLoketApp {
         this.hideModal('adminLoginModal');
     }
 
-    async handleAdminLogin() {
-        const username = document.getElementById('adminUsername')?.value;
-        const password = document.getElementById('adminPassword')?.value;
-
-        if (!username || !password) {
-            this.showError('Veuillez remplir tous les champs');
-            return;
+    async handleAdminLogin(e) {
+        e.preventDefault();
+        
+        const username = document.getElementById('adminUsername').value;
+        const password = document.getElementById('adminPassword').value;
+        
+        try {
+            const result = await this.authManager.login(username, password);
+            if (result.success) {
+                this.showNotification('Connexion administrateur réussie', 'success');
+                setTimeout(() => {
+                    window.location.href = '/admin.html';
+                }, 1000);
+            } else {
+                throw new Error(result.error);
+            }
+        } catch (error) {
+            console.error('Erreur connexion admin:', error);
+            this.showNotification('Identifiants incorrects', 'error');
         }
-
-        this.showLoading('Connexion en cours...');
-
-        // Simulation de connexion
-        setTimeout(() => {
-            this.hideLoading();
-            this.showSuccess('Connexion réussie ! Redirection...');
-            setTimeout(() => {
-                window.location.href = '/admin.html';
-            }, 1000);
-        }, 1500);
     }
 
+    // Partage
+    shareDistributeur() {
+        if (!this.selectedDistributeur) return;
+
+        const shareData = {
+            title: this.selectedDistributeur.nom,
+            text: `Découvrez ${this.selectedDistributeur.nom} sur CTL-LOKET`,
+            url: window.location.href
+        };
+
+        if (navigator.share) {
+            navigator.share(shareData).catch(console.error);
+        } else {
+            // Fallback: copier dans le presse-papier
+            navigator.clipboard.writeText(shareData.url).then(() => {
+                this.showNotification('Lien copié dans le presse-papier', 'success');
+            }).catch(() => {
+                this.showNotification('Impossible de partager', 'error');
+            });
+        }
+    }
+
+    // Recentrage carte
+    recenterMap() {
+        if (this.userPosition) {
+            this.mapManager.flyTo(
+                this.userPosition.coords.latitude,
+                this.userPosition.coords.longitude,
+                16
+            );
+        } else {
+            this.mapManager.flyTo(4.0511, 9.7679, 12); // Douala par défaut
+        }
+        this.showNotification('Carte recentrée', 'info');
+    }
+
+    // Utilitaires d'interface
     showModal(modalId) {
         const modal = document.getElementById(modalId);
         if (modal) {
@@ -842,10 +856,17 @@ class CTLLoketApp {
         }
     }
 
-    hideModal() {
-        document.querySelectorAll('.modal').forEach(modal => {
-            modal.classList.remove('active');
-        });
+    hideModal(modalId = null) {
+        if (modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.classList.remove('active');
+            }
+        } else {
+            document.querySelectorAll('.modal').forEach(modal => {
+                modal.classList.remove('active');
+            });
+        }
         document.body.style.overflow = '';
     }
 
@@ -861,79 +882,101 @@ class CTLLoketApp {
         if (panel) {
             panel.classList.remove('active');
         }
+        this.mapManager.stopNavigation();
+        this.navigationActive = false;
+        this.showNotification('Navigation arrêtée', 'info');
     }
 
     showLoading(message = 'Chargement...') {
-        // Créer ou mettre à jour l'indicateur de chargement
-        let loadingEl = document.getElementById('global-loading');
-        if (!loadingEl) {
-            loadingEl = document.createElement('div');
-            loadingEl.id = 'global-loading';
-            loadingEl.className = 'global-loading';
-            document.body.appendChild(loadingEl);
-        }
+        const overlay = document.getElementById('loadingOverlay');
+        const content = overlay?.querySelector('.loading-content p');
         
-        loadingEl.innerHTML = `
-            <div class="loading-content">
-                <div class="loading-spinner"></div>
-                <p>${message}</p>
-            </div>
-        `;
-        loadingEl.style.display = 'flex';
+        if (overlay) {
+            if (content) content.textContent = message;
+            overlay.classList.add('active');
+        }
     }
 
     hideLoading() {
-        const loadingEl = document.getElementById('global-loading');
-        if (loadingEl) {
-            loadingEl.style.display = 'none';
+        const overlay = document.getElementById('loadingOverlay');
+        if (overlay) {
+            overlay.classList.remove('active');
         }
     }
 
-    showNotification(message, type = 'info') {
+    showNotification(message, type = 'info', duration = 5000) {
+        const container = document.getElementById('notificationContainer');
+        if (!container) return;
+
         const notification = document.createElement('div');
         notification.className = `notification ${type}`;
+        
+        const icons = {
+            success: 'fa-check-circle',
+            error: 'fa-exclamation-triangle',
+            warning: 'fa-exclamation-circle',
+            info: 'fa-info-circle'
+        };
+
         notification.innerHTML = `
+            <i class="fas ${icons[type] || icons.info}"></i>
             <div class="notification-content">
-                <i class="fas fa-${this.getNotificationIcon(type)}"></i>
-                <span>${message}</span>
-                <button class="close-notification">&times;</button>
+                <div class="notification-title">${this.getNotificationTitle(type)}</div>
+                <div class="notification-message">${message}</div>
             </div>
+            <button class="notification-close">
+                <i class="fas fa-times"></i>
+            </button>
         `;
 
-        document.body.appendChild(notification);
+        container.appendChild(notification);
 
         // Animation d'entrée
         setTimeout(() => notification.classList.add('show'), 100);
 
-        // Fermeture
-        notification.querySelector('.close-notification').addEventListener('click', () => {
-            notification.remove();
+        // Fermeture manuelle
+        notification.querySelector('.notification-close').addEventListener('click', () => {
+            this.hideNotification(notification);
         });
 
         // Fermeture automatique
+        if (duration > 0) {
+            setTimeout(() => {
+                this.hideNotification(notification);
+            }, duration);
+        }
+
+        return notification;
+    }
+
+    hideNotification(notification) {
+        if (!notification.parentNode) return;
+        
+        notification.classList.remove('show');
+        notification.classList.add('hide');
+        
         setTimeout(() => {
             if (notification.parentNode) {
                 notification.remove();
             }
-        }, 5000);
+        }, 400);
     }
 
-    getNotificationIcon(type) {
-        const icons = {
-            'success': 'check-circle',
-            'error': 'exclamation-triangle',
-            'warning': 'exclamation-circle',
-            'info': 'info-circle'
+    getNotificationTitle(type) {
+        const titles = {
+            success: 'Succès',
+            error: 'Erreur',
+            warning: 'Attention',
+            info: 'Information'
         };
-        return icons[type] || 'info-circle';
+        return titles[type] || 'Notification';
     }
 
-    showError(message) {
-        this.showNotification(message, 'error');
-    }
-
-    showSuccess(message) {
-        this.showNotification(message, 'success');
+    updateResultsCount(count) {
+        const countElement = document.getElementById('resultsCount');
+        if (countElement) {
+            countElement.textContent = `${count} résultat${count !== 1 ? 's' : ''}`;
+        }
     }
 
     getTypeLabel(type) {
@@ -944,6 +987,12 @@ class CTLLoketApp {
             'divers': '🛍️ Divers'
         };
         return types[type] || type;
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 
     debounce(func, wait) {
@@ -959,20 +1008,15 @@ class CTLLoketApp {
     }
 
     cycleMapStyle() {
-        const currentIndex = this.mapManager.getCurrentStyleIndex();
-        const styles = this.mapManager.getMapStyles();
-        const nextIndex = (currentIndex + 1) % styles.length;
-        
-        this.mapManager.setStyle(nextIndex);
-        
-        const styleNames = ['Standard', 'Extérieur', 'Clair', 'Sombre', 'Satellite'];
-        this.showNotification(`Style de carte: ${styleNames[nextIndex]}`);
+        this.mapManager.cycleStyle();
+        this.showNotification('Style de carte changé', 'info');
     }
 
     toggleFullscreen() {
         if (!document.fullscreenElement) {
             document.documentElement.requestFullscreen().catch(err => {
-                this.showError('Impossible d\'activer le mode plein écran');
+                console.log(`Erreur fullscreen: ${err.message}`);
+                this.showNotification('Plein écran non supporté', 'error');
             });
         } else {
             document.exitFullscreen();
@@ -980,157 +1024,31 @@ class CTLLoketApp {
     }
 }
 
-// Styles CSS supplémentaires
-const additionalStyles = `
-    .map-error {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        height: 100%;
-        background: var(--card-bg);
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-    }
-
-    .error-content {
-        text-align: center;
-        padding: 2rem;
-        max-width: 400px;
-    }
-
-    .error-content i {
-        font-size: 3rem;
-        color: var(--error-color);
-        margin-bottom: 1rem;
-    }
-
-    .error-content h3 {
-        margin-bottom: 1rem;
-        color: var(--text-primary);
-    }
-
-    .error-content p {
-        color: var(--text-secondary);
-        margin-bottom: 1.5rem;
-    }
-
-    .error-actions {
-        display: flex;
-        gap: 1rem;
-        justify-content: center;
-    }
-
-    .btn-retry, .btn-continue {
-        padding: 0.5rem 1rem;
-        border: none;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 0.9rem;
-    }
-
-    .btn-retry {
-        background: var(--accent-color);
-        color: white;
-    }
-
-    .btn-continue {
-        background: var(--card-bg);
-        color: var(--text-primary);
-        border: 1px solid var(--border-color);
-    }
-
-    .no-results {
-        text-align: center;
-        padding: 2rem;
-        color: var(--text-secondary);
-    }
-
-    .no-results i {
-        font-size: 2rem;
-        margin-bottom: 1rem;
-        opacity: 0.5;
-    }
-
-    .global-loading {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.7);
-        display: none;
-        align-items: center;
-        justify-content: center;
-        z-index: 9999;
-    }
-
-    .loading-content {
-        background: var(--secondary-bg);
-        padding: 2rem;
-        border-radius: 12px;
-        text-align: center;
-        min-width: 200px;
-    }
-
-    .loading-spinner {
-        width: 40px;
-        height: 40px;
-        border: 4px solid var(--border-color);
-        border-top: 4px solid var(--accent-color);
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-        margin: 0 auto 1rem;
-    }
-
-    .services-section {
-        margin-top: 1rem;
-        padding-top: 1rem;
-        border-top: 1px solid var(--border-color);
-    }
-
-    .services-list {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-        margin-top: 0.5rem;
-    }
-
-    .service-tag {
-        background: var(--accent-color);
-        color: white;
-        padding: 0.25rem 0.5rem;
-        border-radius: 12px;
-        font-size: 0.8rem;
-    }
-
-    .card-services {
-        margin-top: 0.25rem;
-    }
-
-    .card-services small {
-        color: var(--text-secondary);
-    }
-
-    @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-    }
-`;
-
-// Ajouter les styles supplémentaires
-const styleSheet = document.createElement('style');
-styleSheet.textContent = additionalStyles;
-document.head.appendChild(styleSheet);
-
 // Initialisation de l'application
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('📄 DOM chargé, initialisation de l\'application...');
-    window.app = new CTLLoketApp();
+    // Vérifier que Mapbox est chargé
+    if (typeof mapboxgl === 'undefined') {
+        console.error('Mapbox GL JS non chargé');
+        document.body.innerHTML = `
+            <div style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; gap: 1rem; background: #0f0f0f; color: white;">
+                <i class="fas fa-exclamation-triangle" style="font-size: 3rem; color: #ff4444;"></i>
+                <h2>Erreur de chargement</h2>
+                <p>Mapbox GL JS n'a pas pu être chargé. Vérifiez votre connexion internet.</p>
+                <button onclick="window.location.reload()" style="background: #00d4ff; color: white; border: none; padding: 1rem 2rem; border-radius: 8px; cursor: pointer;">
+                    <i class="fas fa-redo"></i> Réessayer
+                </button>
+            </div>
+        `;
+        return;
+    }
+
+    // Démarrer l'application
+    window.ctlLoketApp = new CTLLoketApp();
 });
 
-// Gestionnaire d'erreurs global
-window.addEventListener('error', (e) => {
-    console.error('Erreur globale interceptée:', e.error);
-});
-
-console.log('🧩 Script app.js chargé');
+// Exposer certaines méthodes globalement pour les événements
+window.submitAvis = function() {
+    if (window.ctlLoketApp) {
+        window.ctlLoketApp.submitAvis();
+    }
+};
