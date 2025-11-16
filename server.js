@@ -13,7 +13,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
-const _dirname = dirname(_filename);
+const __dirname = dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -279,7 +279,7 @@ app.get('/api/distributeurs', async (req, res) => {
     if (search) {
       paramCount++;
       query += ` AND (d.nom ILIKE $${paramCount} OR d.adresse ILIKE $${paramCount} OR d.ville ILIKE $${paramCount})`;
-      params.push(%${search}%);
+      params.push(`%${search}%`);
     }
 
     query += ` GROUP BY d.id ORDER BY d.nom`;
@@ -474,7 +474,7 @@ app.get('/api/admin/statistiques', authenticateToken, async (req, res) => {
     const totalDistributeurs = await pool.query('SELECT COUNT(*) FROM distributeurs WHERE statut = $1', ['actif']);
     const parVille = await pool.query('SELECT ville, COUNT(*) as count FROM distributeurs WHERE statut = $1 GROUP BY ville', ['actif']);
     const parType = await pool.query('SELECT type, COUNT(*) as count FROM distributeurs WHERE statut = $1 GROUP BY type', ['actif']);
-    const nouveauxMois = await pool.query(SELECT COUNT(*) FROM distributeurs WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE));
+    const nouveauxMois = await pool.query(`SELECT COUNT(*) FROM distributeurs WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE)`);
 
     res.json({
       success: true,
@@ -511,6 +511,6 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 
 // Démarrage du serveur
 app.listen(PORT, async () => {
-  console.log(🚀 Serveur CTL-LOKET démarré sur le port ${PORT});
+  console.log(`🚀 Serveur CTL-LOKET démarré sur le port ${PORT}`);
   await initDB();
 });
