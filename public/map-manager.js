@@ -1,786 +1,677 @@
-// Gestionnaire de carte avec Mapbox GL JS
-class MapManager {
+// Configuration Mapbox
+mapboxgl.accessToken = 'pk.eyJ1IjoiY3RscG93ZXIiLCJhIjoiY21pMHpzanhzMTBnNDJpcHl5amp3Y3UxMSJ9.vBVUzayPx57ti_dbj0LuCw';
+
+class AdminApp {
     constructor() {
         this.map = null;
-        this.markers = [];
-        this.userMarker = null;
-        this.navigationLine = null;
-        this.directionSource = null;
-        this.currentStyleIndex = 0;
-        this.mapStyles = [
-            'mapbox://styles/mapbox/navigation-day-v1',      // Style navigation jour
-            'mapbox://styles/mapbox/navigation-night-v1',    // Style navigation nuit
-            'mapbox://styles/mapbox/satellite-streets-v12',  // Style satellite
-            'mapbox://styles/ctlpower/clp0q7v9c007s01r98bqy9p58' // Style Tesla personnalisé
-        ];
-        this.onMarkerClickCallback = null;
-        this.onMapClickCallback = null;
-        this.isInitialized = false;
+        this.token = localStorage.getItem('adminToken');
+        this.currentDistributeurs = [];
+        this.editingId = null;
+        this.currentMarker = null;
+        
+        this.init();
     }
 
-    async init(containerId) {
-        try {
-            // Configuration Mapbox avec votre token
-            mapboxgl.accessToken = 'pk.eyJ1IjoiY3RscG93ZXIiLCJhIjoiY21pMHpzanhzMTBnNDJpcHl5amp3Y3UxMSJ9.vBVUzayPx57ti_dbj0LuCw';
-            
-            // Vérifier que le token est valide
-            if (!mapboxgl.accessToken) {
-                throw new Error('Token Mapbox non configuré');
-            }
-
-            this.map = new mapboxgl.Map({
-                container: containerId,
-                style: this.mapStyles[this.currentStyleIndex],
-                center: [11.5021, 3.8480], // Centre du Cameroun
-                zoom: 6,
-                pitch: 0,
-                bearing: 0,
-                antialias: true,
-                attributionControl: true,
-                customAttribution: '© CTL-LOKET',
-                maxZoom: 18,
-                minZoom: 5
-            });
-
-            await this.waitForMapLoad();
-            this.setupMapControls();
-            this.setupMapEvents();
-            this.isInitialized = true;
-            
-            console.log('✅ MapManager initialisé avec succès');
-            
-        } catch (error) {
-            console.error('❌ Erreur initialisation MapManager:', error);
-            throw error;
-        }
-    }
-
-    waitForMapLoad() {
-        return new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                reject(new Error('Timeout chargement carte'));
-            }, 10000);
-
-            this.map.on('load', () => {
-                clearTimeout(timeout);
-                console.log('🗺️ Carte Mapbox chargée');
-                resolve();
-            });
-
-            this.map.on('error', (e) => {
-                clearTimeout(timeout);
-                console.error('❌ Erreur chargement carte:', e);
-                reject(e);
-            });
-        });
-    }
-
-    setupMapControls() {
-        try {
-            // Contrôles de navigation
-            this.map.addControl(new mapboxgl.NavigationControl({
-                showCompass: true,
-                showZoom: true
-            }), 'top-right');
-
-            // Contrôle d'échelle
-            this.map.addControl(new mapboxgl.ScaleControl({
-                maxWidth: 100,
-                unit: 'metric'
-            }), 'bottom-left');
-
-            // Contrôle de géolocalisation
-            const geolocateControl = new mapboxgl.GeolocateControl({
-                positionOptions: {
-                    enableHighAccuracy: true,
-                    timeout: 6000
-                },
-                trackUserLocation: true,
-                showUserLocation: true,
-                showAccuracyCircle: true,
-                fitBoundsOptions: {
-                    maxZoom: 16
-                }
-            });
-            
-            this.map.addControl(geolocateControl, 'top-right');
-
-            // Événements du contrôle de géolocalisation
-            geolocateControl.on('geolocate', (e) => {
-                console.log('📍 Position géolocalisée:', e.coords);
-            });
-
-            geolocateControl.on('error', (e) => {
-                console.error('❌ Erreur géolocalisation:', e);
-            });
-
-        } catch (error) {
-            console.warn('⚠️ Certains contrôles carte non disponibles:', error);
-        }
-    }
-
-    setupMapEvents() {
-        // Clic sur la carte
-        this.map.on('click', (e) => {
-            if (this.onMapClickCallback) {
-                this.onMapClickCallback(e);
-            }
-        });
-
-        // Mouvement de la carte
-        this.map.on('moveend', () => {
-            this.updateMarkersVisibility();
-        });
-
-        // Zoom de la carte
-        this.map.on('zoom', () => {
-            this.updateMarkersSize();
-        });
-
-        // Erreurs de la carte
-        this.map.on('error', (e) => {
-            console.error('❌ Erreur carte:', e);
-        });
-
-        // Redimensionnement
-        this.map.on('resize', () => {
-            this.updateMarkersVisibility();
-        });
-    }
-
-    updateDistributeurs(distributeurs) {
-        if (!this.isInitialized) {
-            console.warn('⚠️ Carte non initialisée');
+    async init() {
+        if (!this.checkAuth()) {
+            window.location.href = '/';
             return;
         }
 
-        this.clearMarkers();
-        
-        distributeurs.forEach(distributeur => {
-            this.addDistributeurMarker(distributeur);
-        });
-
-        this.updateMarkersVisibility();
-        console.log(`📍 ${distributeurs.length} distributeurs affichés sur la carte`);
+        await this.initMap();
+        this.bindEvents();
+        this.loadDashboard();
+        this.loadDistributeurs();
+        this.setupAdminInfo();
     }
 
-    addDistributeurMarker(distributeur) {
+    checkAuth() {
+        if (!this.token) {
+            return false;
+        }
+
         try {
-            const el = document.createElement('div');
-            el.className = `distributeur-marker ${distributeur.type}`;
-            el.innerHTML = this.getMarkerHTML(distributeur);
-            el.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (this.onMarkerClickCallback) {
-                    this.onMarkerClickCallback(distributeur);
-                }
+            const payload = JSON.parse(atob(this.token.split('.')[1]));
+            const isExpired = payload.exp * 1000 < Date.now();
+            
+            if (isExpired) {
+                this.logout();
+                return false;
+            }
+            
+            return true;
+        } catch (error) {
+            this.logout();
+            return false;
+        }
+    }
+
+    async initMap() {
+        try {
+            this.map = new mapboxgl.Map({
+                container: 'adminMap',
+                style: 'mapbox://styles/mapbox/light-v11',
+                center: [11.5021, 3.8480],
+                zoom: 6,
+                pitch: 0
             });
 
-            // Animation d'apparition
-            el.style.opacity = '0';
-            el.style.transform = 'scale(0) translateY(20px)';
+            this.map.addControl(new mapboxgl.NavigationControl());
 
-            const marker = new mapboxgl.Marker({
-                element: el,
-                anchor: 'bottom'
-            })
-            .setLngLat([parseFloat(distributeur.longitude), parseFloat(distributeur.latitude)])
-            .addTo(this.map);
+            this.map.on('click', (e) => {
+                const { lng, lat } = e.lngLat;
+                this.setDistributeurLocation(lat, lng);
+            });
 
-            // Animation d'entrée
-            setTimeout(() => {
-                el.style.transition = 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)';
-                el.style.opacity = '1';
-                el.style.transform = 'scale(1) translateY(0)';
-            }, 100);
-
-            this.markers.push({
-                marker,
-                distributeur,
-                element: el,
-                id: distributeur.id
+            await new Promise((resolve) => {
+                this.map.on('load', resolve);
             });
 
         } catch (error) {
-            console.error('❌ Erreur ajout marqueur:', error, distributeur);
+            console.error('Erreur initialisation carte admin:', error);
         }
     }
 
-    getMarkerHTML(distributeur) {
-        const typeIcons = {
-            'nourriture': 'fa-utensils',
-            'boissons': 'fa-wine-bottle',
-            'billets': 'fa-ticket-alt',
-            'divers': 'fa-shopping-cart'
-        };
+    bindEvents() {
+        // Navigation
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.switchPanel(item.dataset.panel);
+            });
+        });
 
-        const typeColors = {
-            'nourriture': '#e74c3c',
-            'boissons': '#3498db',
-            'billets': '#9b59b6',
-            'divers': '#f39c12'
-        };
+        // Formulaire
+        document.getElementById('distributeurForm').addEventListener('submit', 
+            this.handleDistributeurSubmit.bind(this)
+        );
 
-        const icon = typeIcons[distributeur.type] || 'fa-map-marker-alt';
-        const color = typeColors[distributeur.type] || '#2c3e50';
-        
-        return `
-            <div class="marker-content">
-                <div class="marker-icon ${distributeur.type}" style="background: ${color}">
-                    <i class="fas ${icon}"></i>
-                </div>
-                ${distributeur.distance ? 
-                    `<div class="marker-distance">${distributeur.distance.toFixed(1)}km</div>` : 
-                    ''
-                }
-                ${distributeur.note_moyenne > 0 ? `
-                    <div class="marker-rating">
-                        <i class="fas fa-star"></i>
-                        <span>${distributeur.note_moyenne.toFixed(1)}</span>
-                    </div>
-                ` : ''}
-            </div>
-        `;
+        // Localisation
+        document.getElementById('getCurrentLocation').addEventListener('click',
+            this.getCurrentLocation.bind(this)
+        );
+
+        // Recherche et filtres
+        document.getElementById('adminSearch').addEventListener('input',
+            this.debounce(this.handleSearch.bind(this), 300)
+        );
+        document.getElementById('adminTypeFilter').addEventListener('change',
+            this.handleFilter.bind(this)
+        );
+        document.getElementById('adminVilleFilter').addEventListener('change',
+            this.handleFilter.bind(this)
+        );
+
+        // Actions
+        document.getElementById('refreshDistributeurs').addEventListener('click',
+            this.loadDistributeurs.bind(this)
+        );
+        document.getElementById('clearForm').addEventListener('click',
+            this.clearForm.bind(this)
+        );
+        document.getElementById('cancelEdit').addEventListener('click',
+            this.cancelEdit.bind(this)
+        );
+
+        // Déconnexion
+        document.getElementById('logoutBtn').addEventListener('click',
+            this.logout.bind(this)
+        );
+
+        // Paramètres
+        document.getElementById('saveSettings').addEventListener('click',
+            this.saveSettings.bind(this)
+        );
     }
 
-    addUserMarker(lat, lng) {
-        if (!this.isInitialized) return;
+    async switchPanel(panelId) {
+        // Mettre à jour la navigation
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        document.querySelector(`[data-panel="${panelId}"]`).classList.add('active');
 
-        // Supprimer l'ancien marqueur
-        if (this.userMarker) {
-            this.userMarker.remove();
+        // Masquer tous les panels
+        document.querySelectorAll('.content-panel').forEach(panel => {
+            panel.classList.remove('active');
+        });
+
+        // Afficher le panel sélectionné
+        document.getElementById(panelId).classList.add('active');
+
+        // Charger les données spécifiques
+        switch(panelId) {
+            case 'dashboard':
+                await this.loadDashboard();
+                break;
+            case 'distributeurs':
+                await this.loadDistributeurs();
+                break;
+            case 'statistiques':
+                await this.loadAdvancedStats();
+                break;
         }
+    }
 
+    setupAdminInfo() {
+        const adminData = JSON.parse(localStorage.getItem('adminData'));
+        if (adminData) {
+            document.getElementById('adminName').textContent = adminData.full_name || adminData.username;
+        }
+    }
+
+    async loadDashboard() {
         try {
+            const response = await this.apiRequest('/api/admin/statistiques');
+            if (response.success) {
+                this.updateDashboard(response.data);
+                this.createCharts(response.data);
+            }
+        } catch (error) {
+            this.showError('Erreur chargement dashboard');
+        }
+    }
+
+    updateDashboard(stats) {
+        document.getElementById('totalDistributeurs').textContent = stats.total;
+        document.getElementById('totalVilles').textContent = stats.parVille.length;
+        document.getElementById('nouveauxMois').textContent = stats.nouveauxMois;
+        
+        // Calcul note moyenne
+        const moyenne = stats.parType.reduce((acc, type) => acc + (type.note_moyenne || 0), 0) / stats.parType.length;
+        document.getElementById('moyenneNotes').textContent = moyenne.toFixed(1);
+    }
+
+    createCharts(stats) {
+        // Chart des types
+        const typeCtx = document.getElementById('typeChart');
+        if (typeCtx) {
+            new Chart(typeCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: stats.parType.map(t => this.getTypeLabel(t.type)),
+                    datasets: [{
+                        data: stats.parType.map(t => t.count),
+                        backgroundColor: ['#e74c3c', '#3498db', '#9b59b6', '#f39c12']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        // Chart des villes
+        const villeCtx = document.getElementById('villeChart');
+        if (villeCtx) {
+            new Chart(villeCtx, {
+                type: 'bar',
+                data: {
+                    labels: stats.parVille.map(v => v.ville),
+                    datasets: [{
+                        label: 'Nombre de distributeurs',
+                        data: stats.parVille.map(v => v.count),
+                        backgroundColor: '#00d4ff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    async loadDistributeurs(filters = {}) {
+        try {
+            this.showLoading();
+            
+            const params = new URLSearchParams(filters);
+            const response = await this.apiRequest(`/api/distributeurs?${params}`);
+            
+            if (response.success) {
+                this.currentDistributeurs = response.data;
+                this.updateDistributeursTable();
+                this.updateAdminMap();
+                this.hideLoading();
+            }
+        } catch (error) {
+            this.showError('Erreur chargement distributeurs');
+            this.hideLoading();
+        }
+    }
+
+    updateDistributeursTable() {
+        const tbody = document.getElementById('distributeursTableBody');
+        tbody.innerHTML = '';
+
+        this.currentDistributeurs.forEach(distributeur => {
+            const row = this.createDistributeurRow(distributeur);
+            tbody.appendChild(row);
+        });
+    }
+
+    createDistributeurRow(distributeur) {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>
+                <div class="distributeur-info">
+                    <strong>${distributeur.nom}</strong>
+                    <small>${distributeur.adresse}</small>
+                </div>
+            </td>
+            <td>
+                <span class="type-badge ${distributeur.type}">
+                    ${this.getTypeLabel(distributeur.type)}
+                </span>
+            </td>
+            <td>${distributeur.ville}</td>
+            <td>${distributeur.adresse}</td>
+            <td>
+                ${distributeur.note_moyenne > 0 ? `
+                    <div class="rating-display">
+                        <span class="rating">${distributeur.note_moyenne.toFixed(1)}</span>
+                        <i class="fas fa-star"></i>
+                    </div>
+                ` : '--'}
+            </td>
+            <td>
+                <span class="status-badge ${distributeur.statut}">
+                    ${distributeur.statut}
+                </span>
+            </td>
+            <td>
+                <div class="action-buttons">
+                    <button class="btn-edit" onclick="adminApp.editDistributeur(${distributeur.id})">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn-delete" onclick="adminApp.deleteDistributeur(${distributeur.id})">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                    <button class="btn-view" onclick="adminApp.viewDistributeur(${distributeur.id})">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
+            </td>
+        `;
+        return row;
+    }
+
+    updateAdminMap() {
+        // Nettoyer la carte
+        if (this.currentMarker) {
+            this.currentMarker.remove();
+        }
+
+        // Ajouter les distributeurs sur la carte
+        this.currentDistributeurs.forEach(distributeur => {
             const el = document.createElement('div');
-            el.className = 'user-marker';
+            el.className = 'distributeur-marker';
             el.innerHTML = `
-                <div class="user-marker-content">
-                    <i class="fas fa-user"></i>
-                    <div class="pulse-ring"></div>
-                    <div class="pulse-ring" style="animation-delay: 0.5s"></div>
-                    <div class="pulse-ring" style="animation-delay: 1s"></div>
+                <div class="marker-content">
+                    <div class="marker-icon ${distributeur.type}">
+                        <i class="fas fa-map-marker-alt"></i>
+                    </div>
                 </div>
             `;
 
-            this.userMarker = new mapboxgl.Marker({
-                element: el,
-                anchor: 'center'
-            })
+            const marker = new mapboxgl.Marker({ element: el })
+                .setLngLat([distributeur.longitude, distributeur.latitude])
+                .addTo(this.map);
+
+            el.addEventListener('click', () => {
+                this.editDistributeur(distributeur.id);
+            });
+        });
+    }
+
+    async handleDistributeurSubmit(e) {
+        e.preventDefault();
+        
+        const formData = this.getFormData();
+        if (!this.validateForm(formData)) return;
+
+        try {
+            if (this.editingId) {
+                await this.updateDistributeur(this.editingId, formData);
+            } else {
+                await this.createDistributeur(formData);
+            }
+            
+            this.clearForm();
+            this.loadDistributeurs();
+            this.switchPanel('distributeurs');
+            
+        } catch (error) {
+            this.showError('Erreur sauvegarde distributeur');
+        }
+    }
+
+    getFormData() {
+        return {
+            nom: document.getElementById('distributeurNom').value,
+            type: document.getElementById('distributeurType').value,
+            ville: document.getElementById('distributeurVille').value,
+            adresse: document.getElementById('distributeurAdresse').value,
+            latitude: parseFloat(document.getElementById('distributeurLat').value),
+            longitude: parseFloat(document.getElementById('distributeurLng').value),
+            description: document.getElementById('distributeurDescription').value,
+            telephone: document.getElementById('distributeurTelephone').value,
+            prix_moyen: document.getElementById('distributeurPrix').value
+        };
+    }
+
+    validateForm(data) {
+        const required = ['nom', 'type', 'ville', 'adresse', 'latitude', 'longitude'];
+        for (const field of required) {
+            if (!data[field]) {
+                this.showError(`Le champ ${field} est requis`);
+                return false;
+            }
+        }
+        return true;
+    }
+
+    setDistributeurLocation(lat, lng) {
+        document.getElementById('distributeurLat').value = lat.toFixed(6);
+        document.getElementById('distributeurLng').value = lng.toFixed(6);
+        
+        document.getElementById('currentLat').textContent = lat.toFixed(6);
+        document.getElementById('currentLng').textContent = lng.toFixed(6);
+
+        // Mettre à jour le marqueur
+        if (this.currentMarker) {
+            this.currentMarker.remove();
+        }
+
+        this.currentMarker = new mapboxgl.Marker()
             .setLngLat([lng, lat])
             .addTo(this.map);
 
-            console.log('📍 Marqueur utilisateur ajouté:', { lat, lng });
-
-        } catch (error) {
-            console.error('❌ Erreur ajout marqueur utilisateur:', error);
-        }
-    }
-
-    highlightDistributeur(distributeurId) {
-        this.markers.forEach(({ element, distributeur }) => {
-            if (distributeur.id === distributeurId) {
-                element.classList.add('highlighted');
-                element.style.zIndex = '1000';
-                element.style.transform = 'scale(1.2)';
-                
-                // Animation de pulsation
-                element.style.animation = 'pulse 2s infinite';
-            } else {
-                element.classList.remove('highlighted');
-                element.style.zIndex = '';
-                element.style.transform = '';
-                element.style.animation = '';
-            }
+        // Centrer sur la position
+        this.map.flyTo({
+            center: [lng, lat],
+            zoom: 15
         });
     }
 
-    clearMarkers() {
-        this.markers.forEach(({ marker }) => {
-            try {
-                marker.remove();
-            } catch (error) {
-                console.warn('⚠️ Erreur suppression marqueur:', error);
-            }
-        });
-        this.markers = [];
-    }
-
-    flyTo(lat, lng, zoom = 15) {
-        if (!this.isInitialized) return;
-
+    async getCurrentLocation() {
         try {
-            this.map.flyTo({
-                center: [lng, lat],
-                zoom: zoom,
-                essential: true,
-                duration: 2000,
-                curve: 1.5,
-                speed: 1.2
+            const position = await new Promise((resolve, reject) => {
+                navigator.geolocation.getCurrentPosition(resolve, reject, {
+                    enableHighAccuracy: true,
+                    timeout: 10000
+                });
             });
+
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            
+            this.setDistributeurLocation(lat, lng);
+            
         } catch (error) {
-            console.error('❌ Erreur flyTo:', error);
+            this.showError('Impossible d\'obtenir la position actuelle');
         }
     }
 
-    async startNavigation(start, end) {
-        if (!this.isInitialized) {
-            throw new Error('Carte non initialisée');
-        }
-
-        try {
-            // Nettoyer la navigation précédente
-            this.stopNavigation();
-
-            // Calculer l'itinéraire
-            const route = await this.calculateRoute(start, end);
-            
-            // Dessiner l'itinéraire
-            await this.drawNavigationLine(route);
-            
-            // Animer la navigation
-            this.animateNavigation(route);
-            
-            console.log('🧭 Navigation démarrée:', { start, end });
-
-        } catch (error) {
-            console.error('❌ Erreur démarrage navigation:', error);
-            // Fallback: ligne droite
-            this.drawStraightLine(start, end);
-            this.animateNavigation({ coordinates: [
-                [start.lng, start.lat],
-                [end.lng, end.lat]
-            ]});
-        }
-    }
-
-    async calculateRoute(start, end) {
-        // Simulation d'API de directions
-        // Dans une vraie application, utiliser Mapbox Directions API
-        return new Promise((resolve) => {
-            setTimeout(() => {
-                const coordinates = this.generateRouteCoordinates(start, end, 20);
-                resolve({ coordinates });
-            }, 500);
+    async createDistributeur(data) {
+        const response = await this.apiRequest('/api/admin/distributeurs', {
+            method: 'POST',
+            body: JSON.stringify(data)
         });
-    }
 
-    generateRouteCoordinates(start, end, points = 20) {
-        const coordinates = [];
-        const latDiff = end.lat - start.lat;
-        const lngDiff = end.lng - start.lng;
-        
-        for (let i = 0; i <= points; i++) {
-            const progress = i / points;
-            const t = progress * Math.PI;
-            
-            // Courbe de Bézier pour un chemin naturel
-            const curveFactor = Math.sin(t) * 0.1;
-            
-            const lat = start.lat + latDiff * progress + curveFactor;
-            const lng = start.lng + lngDiff * progress + curveFactor;
-            
-            coordinates.push([lng, lat]);
-        }
-        
-        return coordinates;
-    }
-
-    async drawNavigationLine(route) {
-        if (!this.map.getSource('route')) {
-            this.map.addSource('route', {
-                type: 'geojson',
-                data: {
-                    type: 'Feature',
-                    geometry: {
-                        type: 'LineString',
-                        coordinates: route.coordinates
-                    }
-                }
-            });
+        if (response.success) {
+            this.showSuccess('Distributeur créé avec succès');
+            return response.data;
         } else {
-            this.map.getSource('route').setData({
-                type: 'Feature',
-                geometry: {
-                    type: 'LineString',
-                    coordinates: route.coordinates
-                }
-            });
+            throw new Error(response.error);
+        }
+    }
+
+    async updateDistributeur(id, data) {
+        const response = await this.apiRequest(`/api/admin/distributeurs/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data)
+        });
+
+        if (response.success) {
+            this.showSuccess('Distributeur modifié avec succès');
+            return response.data;
+        } else {
+            throw new Error(response.error);
+        }
+    }
+
+    async editDistributeur(id) {
+        try {
+            const response = await this.apiRequest(`/api/distributeurs/${id}`);
+            
+            if (response.success) {
+                this.populateForm(response.data);
+                this.editingId = id;
+                this.switchPanel('ajouter');
+                
+                // Centrer sur le distributeur
+                this.setDistributeurLocation(
+                    response.data.latitude,
+                    response.data.longitude
+                );
+            }
+        } catch (error) {
+            this.showError('Erreur chargement distributeur');
+        }
+    }
+
+    populateForm(distributeur) {
+        document.getElementById('distributeurNom').value = distributeur.nom;
+        document.getElementById('distributeurType').value = distributeur.type;
+        document.getElementById('distributeurVille').value = distributeur.ville;
+        document.getElementById('distributeurAdresse').value = distributeur.adresse;
+        document.getElementById('distributeurLat').value = distributeur.latitude;
+        document.getElementById('distributeurLng').value = distributeur.longitude;
+        document.getElementById('distributeurDescription').value = distributeur.description || '';
+        document.getElementById('distributeurTelephone').value = distributeur.telephone || '';
+        document.getElementById('distributeurPrix').value = distributeur.prix_moyen || '';
+
+        document.getElementById('formTitle').textContent = 'Modifier le distributeur';
+        document.getElementById('submitBtn').innerHTML = '<i class="fas fa-save"></i> Modifier le distributeur';
+        document.getElementById('cancelEdit').style.display = 'block';
+    }
+
+    async deleteDistributeur(id) {
+        if (!confirm('Êtes-vous sûr de vouloir supprimer ce distributeur ?')) {
+            return;
         }
 
-        // Couche de ligne principale
-        if (!this.map.getLayer('route')) {
-            this.map.addLayer({
-                id: 'route',
+        try {
+            const response = await this.apiRequest(`/api/admin/distributeurs/${id}`, {
+                method: 'DELETE'
+            });
+
+            if (response.success) {
+                this.showSuccess('Distributeur supprimé avec succès');
+                this.loadDistributeurs();
+            }
+        } catch (error) {
+            this.showError('Erreur suppression distributeur');
+        }
+    }
+
+    viewDistributeur(id) {
+        window.open(`/?distributeur=${id}`, '_blank');
+    }
+
+    clearForm() {
+        document.getElementById('distributeurForm').reset();
+        document.getElementById('imagePreview').innerHTML = '';
+        document.getElementById('currentLat').textContent = '--';
+        document.getElementById('currentLng').textContent = '--';
+        
+        this.editingId = null;
+        document.getElementById('formTitle').textContent = 'Ajouter un distributeur';
+        document.getElementById('submitBtn').innerHTML = '<i class="fas fa-save"></i> Enregistrer le distributeur';
+        document.getElementById('cancelEdit').style.display = 'none';
+
+        if (this.currentMarker) {
+            this.currentMarker.remove();
+            this.currentMarker = null;
+        }
+    }
+
+    cancelEdit() {
+        this.clearForm();
+        this.switchPanel('distributeurs');
+    }
+
+    handleSearch(e) {
+        const query = e.target.value;
+        this.loadDistributeurs({ search: query });
+    }
+
+    handleFilter() {
+        const type = document.getElementById('adminTypeFilter').value;
+        const ville = document.getElementById('adminVilleFilter').value;
+        const statut = document.getElementById('adminStatutFilter').value;
+        
+        const filters = {};
+        if (type !== 'all') filters.type = type;
+        if (ville !== 'all') filters.ville = ville;
+        if (statut !== 'all') filters.statut = statut;
+        
+        this.loadDistributeurs(filters);
+    }
+
+    async loadAdvancedStats() {
+        // Implémentation des statistiques avancées
+        this.createAdvancedCharts();
+    }
+
+    createAdvancedCharts() {
+        // Chart d'activité
+        const activityCtx = document.getElementById('activityChart');
+        if (activityCtx) {
+            new Chart(activityCtx, {
                 type: 'line',
-                source: 'route',
-                layout: {
-                    'line-join': 'round',
-                    'line-cap': 'round'
-                },
-                paint: {
-                    'line-color': '#00d4ff',
-                    'line-width': 5,
-                    'line-opacity': 0.8
-                }
-            });
-        }
-
-        // Effet de glow
-        if (!this.map.getLayer('route-glow')) {
-            this.map.addLayer({
-                id: 'route-glow',
-                type: 'line',
-                source: 'route',
-                layout: {
-                    'line-join': 'round',
-                    'line-cap': 'round'
-                },
-                paint: {
-                    'line-color': '#00d4ff',
-                    'line-width': 12,
-                    'line-opacity': 0.2,
-                    'line-blur': 5
-                }
-            });
-        }
-
-        // Point de départ
-        if (!this.map.getSource('start-point')) {
-            this.map.addSource('start-point', {
-                type: 'geojson',
                 data: {
-                    type: 'Feature',
-                    geometry: {
-                        type: 'Point',
-                        coordinates: route.coordinates[0]
-                    }
-                }
-            });
-
-            this.map.addLayer({
-                id: 'start-point',
-                type: 'circle',
-                source: 'start-point',
-                paint: {
-                    'circle-radius': 8,
-                    'circle-color': '#00ff88',
-                    'circle-stroke-width': 2,
-                    'circle-stroke-color': '#ffffff'
+                    labels: ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun'],
+                    datasets: [{
+                        label: 'Nouveaux distributeurs',
+                        data: [5, 8, 12, 6, 15, 10],
+                        borderColor: '#00d4ff',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true
                 }
             });
         }
 
-        // Point d'arrivée
-        if (!this.map.getSource('end-point')) {
-            this.map.addSource('end-point', {
-                type: 'geojson',
+        // Chart performance
+        const performanceCtx = document.getElementById('performanceChart');
+        if (performanceCtx) {
+            new Chart(performanceCtx, {
+                type: 'bar',
                 data: {
-                    type: 'Feature',
-                    geometry: {
-                        type: 'Point',
-                        coordinates: route.coordinates[route.coordinates.length - 1]
-                    }
-                }
-            });
-
-            this.map.addLayer({
-                id: 'end-point',
-                type: 'circle',
-                source: 'end-point',
-                paint: {
-                    'circle-radius': 10,
-                    'circle-color': '#ff4444',
-                    'circle-stroke-width': 3,
-                    'circle-stroke-color': '#ffffff'
-                }
-            });
-        }
-
-        this.navigationLine = {
-            remove: () => {
-                const layers = ['route', 'route-glow', 'start-point', 'end-point'];
-                const sources = ['route', 'start-point', 'end-point'];
-                
-                layers.forEach(layer => {
-                    if (this.map.getLayer(layer)) this.map.removeLayer(layer);
-                });
-                
-                sources.forEach(source => {
-                    if (this.map.getSource(source)) this.map.removeSource(source);
-                });
-            }
-        };
-    }
-
-    drawStraightLine(start, end) {
-        const coordinates = [
-            [start.lng, start.lat],
-            [end.lng, end.lat]
-        ];
-
-        if (this.map.getSource('route')) {
-            this.map.getSource('route').setData({
-                type: 'Feature',
-                geometry: {
-                    type: 'LineString',
-                    coordinates: coordinates
+                    labels: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'],
+                    datasets: [{
+                        label: 'Utilisateurs actifs',
+                        data: [45, 52, 48, 65, 72, 58, 40],
+                        backgroundColor: '#00d4ff'
+                    }]
+                },
+                options: {
+                    responsive: true
                 }
             });
         }
     }
 
-    animateNavigation(route) {
-        const duration = 30000; // 30 secondes
-        const startTime = Date.now();
-        const coordinates = route.coordinates;
+    async saveSettings() {
+        // Implémentation sauvegarde paramètres
+        this.showSuccess('Paramètres sauvegardés avec succès');
+    }
 
-        let currentPositionIndex = 0;
+    logout() {
+        localStorage.removeItem('adminToken');
+        localStorage.removeItem('adminData');
+        window.location.href = '/';
+    }
 
-        const animate = () => {
-            const elapsed = Date.now() - startTime;
-            const progress = Math.min(elapsed / duration, 1);
-            
-            currentPositionIndex = Math.floor(progress * (coordinates.length - 1));
-            const currentPoint = coordinates[currentPositionIndex];
-
-            if (this.userMarker && currentPoint) {
-                this.userMarker.setLngLat(currentPoint);
-            }
-
-            // Suivre la position avec la caméra (sauf à la fin)
-            if (progress < 0.9) {
-                this.map.easeTo({
-                    center: currentPoint,
-                    duration: 1000,
-                    essential: true,
-                    padding: { top: 0, bottom: 100, left: 0, right: 0 }
-                });
-            }
-
-            if (progress < 1) {
-                requestAnimationFrame(animate);
-            } else {
-                this.showArrivalAnimation(coordinates[coordinates.length - 1]);
-            }
+    // Utilitaires API
+    async apiRequest(url, options = {}) {
+        const config = {
+            headers: {
+                'Authorization': `Bearer ${this.token}`,
+                'Content-Type': 'application/json',
+                ...options.headers
+            },
+            ...options
         };
 
-        animate();
-    }
-
-    showArrivalAnimation(endPoint) {
-        // Animation d'arrivée sur le marqueur de destination
-        const destinationMarker = this.markers.find(m => {
-            const markerLngLat = m.marker.getLngLat();
-            return this.calculateDistance(
-                markerLngLat.lat,
-                markerLngLat.lng,
-                endPoint[1],
-                endPoint[0]
-            ) < 0.01; // 10m de tolérance
-        });
-
-        if (destinationMarker) {
-            destinationMarker.element.classList.add('arrival-pulse');
-            setTimeout(() => {
-                destinationMarker.element.classList.remove('arrival-pulse');
-            }, 3000);
+        if (config.body) {
+            config.body = JSON.stringify(config.body);
         }
 
-        // Animation de la caméra
-        this.map.flyTo({
-            center: endPoint,
-            zoom: 17,
-            pitch: 60,
-            bearing: 0,
-            duration: 2000
-        });
+        const response = await fetch(url, config);
+        return await response.json();
     }
 
-    stopNavigation() {
-        if (this.navigationLine) {
-            this.navigationLine.remove();
-            this.navigationLine = null;
-        }
+    // Utilitaires d'interface
+    showLoading() {
+        document.getElementById('adminLoading').classList.add('active');
     }
 
-    cycleStyle() {
-        if (!this.isInitialized) return;
-
-        this.currentStyleIndex = (this.currentStyleIndex + 1) % this.mapStyles.length;
-        
-        try {
-            this.map.setStyle(this.mapStyles[this.currentStyleIndex]);
-            
-            this.map.once('style.load', () => {
-                // Recharger les marqueurs après changement de style
-                setTimeout(() => {
-                    this.markers.forEach(({ marker, distributeur }) => {
-                        try {
-                            marker.addTo(this.map);
-                        } catch (error) {
-                            console.warn('⚠️ Erreur rechargement marqueur:', error);
-                        }
-                    });
-                    
-                    if (this.userMarker) {
-                        this.userMarker.addTo(this.map);
-                    }
-                }, 500);
-            });
-
-        } catch (error) {
-            console.error('❌ Erreur changement style:', error);
-        }
+    hideLoading() {
+        document.getElementById('adminLoading').classList.remove('active');
     }
 
-    updateMarkersVisibility() {
-        if (!this.isInitialized) return;
-
-        try {
-            const bounds = this.map.getBounds();
-            this.markers.forEach(({ marker, distributeur }) => {
-                const lngLat = [parseFloat(distributeur.longitude), parseFloat(distributeur.latitude)];
-                const isVisible = bounds.contains(lngLat);
-                
-                if (marker.getElement()) {
-                    marker.getElement().style.display = isVisible ? 'block' : 'none';
-                }
-            });
-        } catch (error) {
-            console.warn('⚠️ Erreur mise à jour visibilité marqueurs:', error);
-        }
+    showSuccess(message) {
+        this.showNotification(message, 'success');
     }
 
-    updateMarkersSize() {
-        if (!this.isInitialized) return;
-
-        try {
-            const zoom = this.map.getZoom();
-            const scale = Math.min(1.2, Math.max(0.6, (zoom - 10) / 8));
-            
-            this.markers.forEach(({ element }) => {
-                if (element) {
-                    element.style.transform = `scale(${scale})`;
-                }
-            });
-        } catch (error) {
-            console.warn('⚠️ Erreur mise à jour taille marqueurs:', error);
-        }
+    showError(message) {
+        this.showNotification(message, 'error');
     }
 
-    highlightSearchResults(results) {
-        this.markers.forEach(({ element, distributeur }) => {
-            const isVisible = results.some(r => r.id === distributeur.id);
-            if (element) {
-                element.style.opacity = isVisible ? '1' : '0.3';
-                element.style.pointerEvents = isVisible ? 'auto' : 'none';
-            }
-        });
+    showNotification(message, type = 'info') {
+        // Implémentation simple de notification
+        alert(`${type.toUpperCase()}: ${message}`);
     }
 
-    showMapView() {
-        if (!this.isInitialized) return;
-
-        this.map.flyTo({
-            pitch: 0,
-            bearing: 0,
-            zoom: 12,
-            duration: 1000
-        });
-    }
-
-    showListView() {
-        if (!this.isInitialized) return;
-
-        this.map.flyTo({
-            pitch: 0,
-            bearing: 0,
-            zoom: 10,
-            duration: 1000
-        });
-    }
-
-    showRadarView() {
-        if (!this.isInitialized) return;
-
-        this.map.flyTo({
-            pitch: 60,
-            bearing: 0,
-            zoom: 13,
-            duration: 1000
-        });
-        
-        this.animateRadar();
-    }
-
-    animateRadar() {
-        if (!this.isInitialized) return;
-
-        let bearing = 0;
-        this.radarActive = true;
-        
-        const animate = () => {
-            if (!this.radarActive) return;
-            
-            bearing = (bearing + 0.3) % 360;
-            this.map.easeTo({
-                bearing: bearing,
-                duration: 50
-            });
-            
-            requestAnimationFrame(animate);
+    getTypeLabel(type) {
+        const types = {
+            'nourriture': '🍽️ Nourriture',
+            'boissons': '🥤 Boissons',
+            'billets': '🎫 Billets',
+            'divers': '🛍️ Divers'
         };
-        
-        animate();
+        return types[type] || type;
     }
 
-    stopRadar() {
-        this.radarActive = false;
-    }
-
-    getClickCoordinates(e) {
-        return {
-            lng: e.lngLat.lng,
-            lat: e.lngLat.lat
+    debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
         };
-    }
-
-    calculateDistance(lat1, lng1, lat2, lng2) {
-        const R = 6371;
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLng = (lng2 - lng1) * Math.PI / 180;
-        const a = 
-            Math.sin(dLat/2) * Math.sin(dLat/2) +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-            Math.sin(dLng/2) * Math.sin(dLng/2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        return R * c;
-    }
-
-    onMarkerClick(callback) {
-        this.onMarkerClickCallback = callback;
-    }
-
-    onMapClick(callback) {
-        this.onMapClickCallback = callback;
-    }
-
-    // Nettoyage
-    destroy() {
-        if (this.map) {
-            this.stopNavigation();
-            this.stopRadar();
-            this.clearMarkers();
-            
-            if (this.userMarker) {
-                this.userMarker.remove();
-            }
-            
-            this.map.remove();
-            this.isInitialized = false;
-        }
     }
 }
 
-export default MapManager;
+// Initialisation de l'application admin
+const adminApp = new AdminApp();
+window.adminApp = adminApp;
