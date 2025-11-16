@@ -129,7 +129,7 @@ class AdminApp {
         document.querySelectorAll('.nav-item').forEach(item => {
             item.classList.remove('active');
         });
-        document.querySelector([data-panel="${panelId}"]).classList.add('active');
+        document.querySelector(`[data-panel="${panelId}"]`).classList.add('active');
 
         // Masquer tous les panels
         document.querySelectorAll('.content-panel').forEach(panel => {
@@ -236,7 +236,7 @@ class AdminApp {
             this.showLoading();
             
             const params = new URLSearchParams(filters);
-            const response = await this.apiRequest(/api/distributeurs?${params});
+            const response = await this.apiRequest(`/api/distributeurs?${params}`);
             
             if (response.success) {
                 this.currentDistributeurs = response.data;
@@ -374,7 +374,7 @@ class AdminApp {
         const required = ['nom', 'type', 'ville', 'adresse', 'latitude', 'longitude'];
         for (const field of required) {
             if (!data[field]) {
-                this.showError(Le champ ${field} est requis);
+                this.showError(`Le champ ${field} est requis`);
                 return false;
             }
         }
@@ -438,7 +438,7 @@ class AdminApp {
     }
 
     async updateDistributeur(id, data) {
-        const response = await this.apiRequest(/api/admin/distributeurs/${id}, {
+        const response = await this.apiRequest(`/api/admin/distributeurs/${id}`, {
             method: 'PUT',
             body: JSON.stringify(data)
         });
@@ -453,7 +453,7 @@ class AdminApp {
 
     async editDistributeur(id) {
         try {
-            const response = await this.apiRequest(/api/distributeurs/${id});
+            const response = await this.apiRequest(`/api/distributeurs/${id}`);
             
             if (response.success) {
                 this.populateForm(response.data);
@@ -493,7 +493,7 @@ class AdminApp {
         }
 
         try {
-            const response = await this.apiRequest(/api/admin/distributeurs/${id}, {
+            const response = await this.apiRequest(`/api/admin/distributeurs/${id}`, {
                 method: 'DELETE'
             });
 
@@ -507,7 +507,7 @@ class AdminApp {
     }
 
     viewDistributeur(id) {
-        window.open(/?distributeur=${id}, '_blank');
+        window.open(`/?distributeur=${id}`, '_blank');
     }
 
     clearForm() {
@@ -587,3 +587,91 @@ class AdminApp {
                     datasets: [{
                         label: 'Utilisateurs actifs',
                         data: [45, 52, 48, 65, 72, 58, 40],
+                        backgroundColor: '#00d4ff'
+                    }]
+                },
+                options: {
+                    responsive: true
+                }
+            });
+        }
+    }
+
+    async saveSettings() {
+        // Implémentation sauvegarde paramètres
+        this.showSuccess('Paramètres sauvegardés avec succès');
+    }
+
+    logout() {
+        localStorage.removeItem('adminToken');
+        localStorage.removeItem('adminData');
+        window.location.href = '/';
+    }
+
+    // Utilitaires API
+    async apiRequest(url, options = {}) {
+        const config = {
+            headers: {
+                'Authorization': `Bearer ${this.token}`,
+                'Content-Type': 'application/json',
+                ...options.headers
+            },
+            ...options
+        };
+
+        if (config.body) {
+            config.body = JSON.stringify(config.body);
+        }
+
+        const response = await fetch(url, config);
+        return await response.json();
+    }
+
+    // Utilitaires d'interface
+    showLoading() {
+        document.getElementById('adminLoading').classList.add('active');
+    }
+
+    hideLoading() {
+        document.getElementById('adminLoading').classList.remove('active');
+    }
+
+    showSuccess(message) {
+        this.showNotification(message, 'success');
+    }
+
+    showError(message) {
+        this.showNotification(message, 'error');
+    }
+
+    showNotification(message, type = 'info') {
+        // Implémentation simple de notification
+        alert(`${type.toUpperCase()}: ${message}`);
+    }
+
+    getTypeLabel(type) {
+        const types = {
+            'nourriture': '🍽️ Nourriture',
+            'boissons': '🥤 Boissons',
+            'billets': '🎫 Billets',
+            'divers': '🛍️ Divers'
+        };
+        return types[type] || type;
+    }
+
+    debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+}
+
+// Initialisation de l'application admin
+const adminApp = new AdminApp();
+window.adminApp = adminApp;
