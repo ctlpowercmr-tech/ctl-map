@@ -17,74 +17,128 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Configuration de la base de données avec fallback
-let pool;
-try {
-    pool = new pg.Pool({
-        connectionString: process.env.POSTGRES_URL,
-        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-    });
-    
-    // Tester la connexion
-    pool.query('SELECT NOW()').then(() => {
-        console.log('✅ Connecté à PostgreSQL');
-    }).catch(err => {
-        console.warn('⚠️ PostgreSQL non disponible, utilisation du mode démo');
-        pool = null;
-    });
-} catch (error) {
-    console.warn('⚠️ Configuration PostgreSQL échouée, mode démo activé');
-    pool = null;
-}
+// Configuration de la base de données
+const pool = new pg.Pool({
+  connectionString: process.env.POSTGRES_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
 
-// Données de démonstration
-const demoDistributeurs = [
-    {
-        id: 1,
-        nom: "Distributeur BonApp - Akwa",
-        type: "nourriture",
-        latitude: 4.0511,
-        longitude: 9.7679,
-        adresse: "Rue Joss, Akwa, Douala",
-        ville: "Douala",
-        description: "Distributeur de snacks et boissons 24h/24",
-        telephone: "+237 6XX XXX XXX",
-        prix_moyen: "500 - 2000 FCFA",
-        note_moyenne: 4.2,
-        nombre_avis: 15,
-        images: []
-    },
-    {
-        id: 2,
-        nom: "Distributeur AquaVie - Deido",
-        type: "boissons",
-        latitude: 4.0486,
-        longitude: 9.7043,
-        adresse: "Avenue Charles de Gaulle, Deido, Douala",
-        ville: "Douala",
-        description: "Distributeur d'eau et boissons fraîches",
-        telephone: "+237 6XX XXX XXX",
-        prix_moyen: "300 - 1500 FCFA",
-        note_moyenne: 4.5,
-        nombre_avis: 8,
-        images: []
-    },
-    {
-        id: 3,
-        nom: "Distributeur TicketPlus - Bonanjo",
-        type: "billets",
-        latitude: 4.0444,
-        longitude: 9.7013,
-        adresse: "Boulevard de la Liberté, Bonanjo, Douala",
-        ville: "Douala",
-        description: "Distributeur de tickets de bus et événements",
-        telephone: "+237 6XX XXX XXX",
-        prix_moyen: "1000 - 5000 FCFA",
-        note_moyenne: 4.0,
-        nombre_avis: 12,
-        images: []
+// Middleware de sécurité
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com", "https://cdn.jsdelivr.net", "https://api.mapbox.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://unpkg.com", "https://cdn.jsdelivr.net", "https://api.mapbox.com"],
+      imgSrc: ["'self'", "data:", "https:", "http:", "blob:"],
+      connectSrc: ["'self'", "https://api.mapbox.com", "wss:"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"]
     }
-];
+  },
+  crossOriginEmbedderPolicy: false
+}));
+
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.static(join(__dirname, 'public')));
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
+  message: { error: 'Trop de requêtes, veuillez réessayer plus tard.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+app.use(limiter);
+
+// Initialisation de la base de données
+async function initDB() {
+  try {
+    // Table admins
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS admins (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(50) UNIQUE NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        email VARCHAR(255),
+        full_name VARCHAR(100),
+        permissions JSONB DEFAULT '["all"]',
+        is_active BOOLEAN DEFAULT true,
+        last_login TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Table distributeurs
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS distributeurs (
+        id SERIAL PRIMARY KEY,
+        nom VARCHAR(255) NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        latitude DECIMAL(12, 9) NOT NULL,
+        longitude DECIMAL(12, 9) NOT NULL,
+        adresse TEXT NOT NULL,
+        ville VARCHAR(100) NOT NULL,
+        description TEXT,
+        telephone VARCHAR(20),
+        email VARCHAR(255),
+        site_web VARCHAR(255),
+        horaires JSONB,
+        services JSONB,
+        statut VARCHAR(20) DEFAULT 'actif',
+        prix_moyen VARCHAR(50),
+        note DECIMAL(3, 2) DEFAULT 0,
+        nombre_avis INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Table images
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS distributeur_images (
+        id SERIAL PRIMARY KEY,
+        distributeur_id INTEGER REFERENCES distributeurs(id) ON DELETE CASCADE,
+        image_url TEXT NOT NULL,
+        image_type VARCHAR(50) DEFAULT 'photo',
+        is_primary BOOLEAN DEFAULT false,
+        ordre INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Table avis
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS avis (
+        id SERIAL PRIMARY KEY,
+        distributeur_id INTEGER REFERENCES distributeurs(id) ON DELETE CASCADE,
+        utilisateur_id VARCHAR(100),
+        note INTEGER CHECK (note >= 1 AND note <= 5),
+        commentaire TEXT,
+        statut VARCHAR(20) DEFAULT 'approuve',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Table logs
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS logs (
+        id SERIAL PRIMARY KEY,
+        action VARCHAR(100) NOT NULL,
+        utilisateur_id INTEGER,
+        details JSONB,
+        ip_address VARCHAR(45),
+        user_agent TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // Créer admin par défaut
     const adminExists = await pool.query('SELECT * FROM admins WHERE username = $1', ['admin']);
     if (adminExists.rows.length === 0) {
@@ -658,4 +712,3 @@ app.listen(PORT, async () => {
   
   await initDB();
 });
-
